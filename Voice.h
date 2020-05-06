@@ -8,15 +8,15 @@
 #include <libraries/ne10/NE10.h> // NEON FFT library
 #include <numeric>
 #include <libraries/Midi/Midi.h>
-
 #include "Constants.h"
+#include "Grain.h"
 
 class Voice {
 	public:
 		Voice(float sampleRate);
 		~Voice();
 		
-		void noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH>& grainSrcBuffer, float frequency);
+		void noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer, float frequency);
 		void noteOff();
 		float play();
 	private:
@@ -40,25 +40,24 @@ class Voice {
 		// desired frequency bands for this note
 		// This buffer will be filled once for every noteOn event
 		// and subsequently used to generate grains for this voice :)
-		float buffer[GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE] = {};
+		float buffer[MAX_GRAIN_SAMPLES];
 		int bufferPosition = NOT_PLAYING_I;
 		
-		// TODO Turn this into MAXIMUM length of each grain in samples
-		const int grainLength = GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20;
-		
-		// Hann window for windowing grains
-		float hannWindow[GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20];
-		
 		// Total number of grains for this voice
-		int numberOfGrains = 20;
+		int numberOfGrains = 30;
+		
+		// Current grains
+		std::vector<Grain> grains;
+
 		// Current buffer positions for grains 
 		std::vector<int> grainPositions;
-		// Grain audio data
-		// Frequency-extracted signal will go into these buffers once for each noteOn event
-		std::vector<std::array<float, int(GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20)>> grainBuffers;
 		
 		// Number of grains that should play at once
-		int numberOfGrainsPlayback = 10;
+		int numberOfGrainsPlayback = 20;
+		
+		// How long to wait before triggering a new sample
+		int waitLimit = MAX_GRAIN_SAMPLES / 3;
+		int waitCounter = 0;
 		
 		// Helper function to find the next non-playing grain sequentially
 		// I.e. always returns the next free grain with the lowest index 

@@ -2,6 +2,8 @@
  * Constants.h
  * Definition of system-wide constants
 *****/
+#ifndef MY_CONSTANTS_H
+#define MY_CONSTANTS_H
 
 // Buffer length for circular buffer
 const int CB_LENGTH = 16384;
@@ -18,5 +20,14 @@ const int NOT_PLAYING_I = -1;
 const int NUM_VOICES = 16;
 
 // Expressed in factors of FFT_HOP_SIZE
-// So 100 will lead to a src grain buffer of 100 * 512 = 51200 samples (~1.25s)
-const int GRAIN_SRC_BUFFER_LENGTH = 100;
+// 100 will lead to a src grain buffer of 100 * 512 = 51200 samples (~1.25s)
+const int GRAIN_FFT_INTERVAL = 100;
+
+// The final length of the grain source buffer
+// i.e. the buffer that is passed to voices on noteOn events
+const int MAX_GRAIN_SAMPLES = FFT_HOP_SIZE * GRAIN_FFT_INTERVAL;
+
+// Maximum allowed grain length (8820 = 200ms at 44.1kHz)
+const int MAX_GRAIN_LENGTH = 8820;
+
+#endif

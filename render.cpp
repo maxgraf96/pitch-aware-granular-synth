@@ -38,11 +38,11 @@ ne10_fft_cfg_float32_t cfg;
 // Large buffer that's updated every ~1s given that no keys are pressed
 // Once a key is pressed, this buffer will be used as source material
 // to extract grains from
-std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH> frequencyDomainGrainBuffer = {};
-std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH> frequencyDomainGrainBufferSwap = {};
+std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> frequencyDomainGrainBuffer = {};
+std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> frequencyDomainGrainBufferSwap = {};
 
 // Pointer to current grain buffer
-std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH>* currentGrainBuffer = nullptr;
+std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>* currentGrainBuffer = nullptr;
 
 // Counter to 10 to check when grain buffer is ready
 int grainBufferIdx = 0;
@@ -156,7 +156,7 @@ bool setup(BelaContext *context, void *userData)
 	cfg = ne10_fft_alloc_c2c_float32_neon (N_FFT);
 	
 	// Initialise grain buffers
-	for (int i = 0; i < GRAIN_SRC_BUFFER_LENGTH; i++){
+	for (int i = 0; i < GRAIN_FFT_INTERVAL; i++){
 		frequencyDomainGrainBuffer[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
 		frequencyDomainGrainBufferSwap[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
 		
@@ -244,8 +244,8 @@ void process_fft(float *inBuffer, int inWritePointer, float *outBuffer, int outW
 	// Increment grain buffer idx
 	grainBufferIdx++;
 	
-	// Swap buffers if GRAIN_SRC_BUFFER_LENGTH x hop size was filled
-	if(grainBufferIdx >= GRAIN_SRC_BUFFER_LENGTH){
+	// Swap buffers if GRAIN_FFT_INTERVAL x hop size was filled
+	if(grainBufferIdx >= GRAIN_FFT_INTERVAL){
 		// Reset grain buffer index
 		grainBufferIdx = 0;
 		frequencyDomainGrainBuffer.swap(frequencyDomainGrainBufferSwap);
@@ -346,7 +346,7 @@ void cleanup(BelaContext *context, void *userData)
 	free(gWindowBuffer);
 	
 	// Memory for frequency domain mask
-	for (int i = 0; i < GRAIN_SRC_BUFFER_LENGTH; i++){
+	for (int i = 0; i < GRAIN_FFT_INTERVAL; i++){
 		NE10_FREE(frequencyDomainGrainBuffer[i]);
 		NE10_FREE(frequencyDomainGrainBufferSwap[i]);
 	}
