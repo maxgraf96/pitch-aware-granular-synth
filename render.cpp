@@ -27,7 +27,6 @@ int gSampleCount = 0;
 float *gWindowBuffer;
 
 // FFT params -----------------------------------------------
-int gHopSize = 512;
 float gFFTScaleFactor = 0;
 
 // Neon params
@@ -36,14 +35,14 @@ ne10_fft_cpx_float32_t* timeDomainOut;
 ne10_fft_cpx_float32_t* frequencyDomain;
 ne10_fft_cfg_float32_t cfg;
 
-// Large buffer that's updated every ~100ms given that no keys are pressed
+// Large buffer that's updated every ~1s given that no keys are pressed
 // Once a key is pressed, this buffer will be used as source material
 // to extract grains from
-std::array<ne10_fft_cpx_float32_t*, 10> frequencyDomainGrainBuffer = {};
-std::array<ne10_fft_cpx_float32_t*, 10> frequencyDomainGrainBufferSwap = {};
+std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH> frequencyDomainGrainBuffer = {};
+std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH> frequencyDomainGrainBufferSwap = {};
 
 // Pointer to current grain buffer
-std::array<ne10_fft_cpx_float32_t*, 10>* currentGrainBuffer = nullptr;
+std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH>* currentGrainBuffer = nullptr;
 
 // Counter to 10 to check when grain buffer is ready
 int grainBufferIdx = 0;
@@ -100,11 +99,13 @@ void midiCallback(MidiChannelMessage message, void* arg){
 					// Trigger note on event
 					voiceObjects[i].noteOn(*currentGrainBuffer, frequency);
 					
+					// Print note info
+					rt_printf("\nnote: %d, frequency: %f \n", note, frequency);
+					
 					// Break loop
 					break;
 				}
 			}
-			rt_printf("\nnote: %d, frequency: %f \n", note, frequency);
 		}
 	}
 	// Note off event: Find voice for incoming frequency and set to NOT_PLAYING
@@ -113,7 +114,7 @@ void midiCallback(MidiChannelMessage message, void* arg){
 		int note = message.getDataByte(0);
 		float frequency = powf(2, (note-69)/12.f)*440;
 		
-		// Find the voice that plays this note remove assignment
+		// Find the voice that plays this note, remove assignment
 		for (int i = 0; i < NUM_VOICES; i++){
 			if (voices[i] == frequency) {
 				// Reset voice
@@ -145,7 +146,7 @@ bool setup(BelaContext *context, void *userData)
 	rt_printf("Sample data length: %4.2f seconds \n", (gSampleData.sampleLen / context->audioSampleRate));
 
 	gFFTScaleFactor = 1.0f / (float)N_FFT;
-	gOutputBufferWritePointer += gHopSize;
+	gOutputBufferWritePointer += FFT_HOP_SIZE;
 
 	// Allocate memory for time domain inputs and outputs
 	// frequency domain representation and the configuration for NEON
@@ -155,7 +156,7 @@ bool setup(BelaContext *context, void *userData)
 	cfg = ne10_fft_alloc_c2c_float32_neon (N_FFT);
 	
 	// Initialise grain buffers
-	for (int i = 0; i < 10; i++){
+	for (int i = 0; i < GRAIN_SRC_BUFFER_LENGTH; i++){
 		frequencyDomainGrainBuffer[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
 		frequencyDomainGrainBufferSwap[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
 		
@@ -243,12 +244,13 @@ void process_fft(float *inBuffer, int inWritePointer, float *outBuffer, int outW
 	// Increment grain buffer idx
 	grainBufferIdx++;
 	
-	// Swap buffers if 10 x hop size was filled
-	if(grainBufferIdx > 9){
+	// Swap buffers if GRAIN_SRC_BUFFER_LENGTH x hop size was filled
+	if(grainBufferIdx >= GRAIN_SRC_BUFFER_LENGTH){
 		// Reset grain buffer index
 		grainBufferIdx = 0;
 		frequencyDomainGrainBuffer.swap(frequencyDomainGrainBufferSwap);
 		grainBufferSafeToRead = !grainBufferSafeToRead;
+		rt_printf("Swapping grain source buffers \n");
 	}
 
 	// Run the inverse FFT -> indicated by the "1" for the last function parameter 
@@ -306,30 +308,31 @@ void render(BelaContext *context, void *userData)
 		gOutputBufferWritePointer++;
 		if(gOutputBufferWritePointer >= CB_LENGTH)
 			gOutputBufferWritePointer = 0;
-				
-		if(allVoicesOff){
-			// If no voices are playing copy frequency domain data into grain buffer
-			gInputBufferPointer++;
-			if(gInputBufferPointer >= CB_LENGTH)
-				gInputBufferPointer = 0;
-	
-			gSampleCount++;
-			if(gSampleCount >= gHopSize) {
-				//process_fft(gInputBuffer, gInputBufferPointer, gOutputBuffer, gOutputBufferPointer);
-				gFFTInputBufferPointer = gInputBufferPointer;
-				gFFTOutputBufferPointer = gOutputBufferWritePointer;
-				Bela_scheduleAuxiliaryTask(gFFTTask);
-	
-				gSampleCount = 0;
-			}
-		} else {
-			// Get grain audio data from voices
+		
+		// If no voices are playing copy frequency domain data into grain buffer
+		gInputBufferPointer++;
+		if(gInputBufferPointer >= CB_LENGTH)
+			gInputBufferPointer = 0;
+
+		gSampleCount++;
+		if(gSampleCount >= FFT_HOP_SIZE) {
+			gFFTInputBufferPointer = gInputBufferPointer;
+			gFFTOutputBufferPointer = gOutputBufferWritePointer;
+			
+			Bela_scheduleAuxiliaryTask(gFFTTask);
+			
+			gSampleCount = 0;
+		}
+		
+		// Get grain audio data from voices
+		if(!allVoicesOff){
+			gOutputBuffer[gOutputBufferWritePointer] = 0.0f;
 			for(int voiceIdx = 0; voiceIdx < NUM_VOICES; voiceIdx++){
 				if(voices[voiceIdx] > NOT_PLAYING){
 					gOutputBuffer[gOutputBufferWritePointer] += voiceObjects[voiceIdx].play();
 				}
 			}
-		}
+		} 
 	}
 }
 
@@ -343,7 +346,7 @@ void cleanup(BelaContext *context, void *userData)
 	free(gWindowBuffer);
 	
 	// Memory for frequency domain mask
-	for (int i = 0; i < 10; i++){
+	for (int i = 0; i < GRAIN_SRC_BUFFER_LENGTH; i++){
 		NE10_FREE(frequencyDomainGrainBuffer[i]);
 		NE10_FREE(frequencyDomainGrainBufferSwap[i]);
 	}

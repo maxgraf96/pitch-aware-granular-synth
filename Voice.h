@@ -3,6 +3,8 @@
 #include <cmath>
 #include <memory>
 #include <set>
+#include <stdlib.h>
+#include <time.h>
 #include <libraries/ne10/NE10.h> // NEON FFT library
 #include <numeric>
 #include <libraries/Midi/Midi.h>
@@ -14,7 +16,7 @@ class Voice {
 		Voice(float sampleRate);
 		~Voice();
 		
-		void noteOn(std::array<ne10_fft_cpx_float32_t*, 10>& grainSrcBuffer, float frequency);
+		void noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_SRC_BUFFER_LENGTH>& grainSrcBuffer, float frequency);
 		void noteOff();
 		float play();
 	private:
@@ -38,14 +40,33 @@ class Voice {
 		// desired frequency bands for this note
 		// This buffer will be filled once for every noteOn event
 		// and subsequently used to generate grains for this voice :)
-		float buffer[10 * FFT_HOP_SIZE] = {};
-		int bufferPosition = int(NOT_PLAYING);
+		float buffer[GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE] = {};
+		int bufferPosition = NOT_PLAYING_I;
 		
+		// TODO Turn this into MAXIMUM length of each grain in samples
+		const int grainLength = GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20;
+		
+		// Hann window for windowing grains
+		float hannWindow[GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20];
+		
+		// Total number of grains for this voice
+		int numberOfGrains = 20;
 		// Current buffer positions for grains 
-		int grainPositions[20] = {0};
-		// Length of each grain in samples
-		const int grainLength = int(10 * FFT_HOP_SIZE / 20);
+		std::vector<int> grainPositions;
 		// Grain audio data
-		// Frequency-extracted signal will go into this buffer once for each noteOn event
-		float grainBuffers[20][int(10 * FFT_HOP_SIZE / 20)] = {{0}};
+		// Frequency-extracted signal will go into these buffers once for each noteOn event
+		std::vector<std::array<float, int(GRAIN_SRC_BUFFER_LENGTH * FFT_HOP_SIZE / 20)>> grainBuffers;
+		
+		// Number of grains that should play at once
+		int numberOfGrainsPlayback = 10;
+		
+		// Helper function to find the next non-playing grain sequentially
+		// I.e. always returns the next free grain with the lowest index 
+		int findNextFreeGrainIdx();
+		
+		// Get random true/false
+		bool getRandomBool();
+		// Return a random number from 0 to the given upper limit
+		int getRandomInRange(int upperLimit);
+		
 };
