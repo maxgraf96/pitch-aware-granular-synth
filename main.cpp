@@ -35,11 +35,14 @@ The Bela software is distributed under the GNU Lesser General Public License
 #include <libraries/sndfile/sndfile.h>				// to load audio files
 #include "SampleData.h"
 #include <Bela.h>
+#include "Globals.h"
 
 using namespace std;
 
 // Global variables used by getCurrentTime()
 unsigned long long gFirstSeconds, gFirstMicroseconds;
+
+int FILE_LENGTH;
 
 // Load samples from file
 int initFile(string file, SampleData *smp)//float *& smp)
@@ -186,6 +189,9 @@ int main(int argc, char *argv[])
 
 	if(settings->verbose)
 		cout << "File contains " << gSampleData.sampleLen << " samples" << endl;
+		
+	// Assign FILE_LENGTH for use in render.cpp
+	FILE_LENGTH = gSampleData.sampleLen;
 
 
 	// Initialise the PRU audio device

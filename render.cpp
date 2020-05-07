@@ -6,6 +6,8 @@
 #include <libraries/Midi/Midi.h>
 #include <numeric>
 #include <atomic>
+#include <libraries/Gui/Gui.h>
+#include <libraries/GuiController/GuiController.h>
 
 // Definition for global variables so as to avoid cluttering the render.cpp code
 #include "Globals.h"
@@ -35,6 +37,11 @@ ne10_fft_cpx_float32_t* timeDomainOut;
 ne10_fft_cpx_float32_t* frequencyDomain;
 ne10_fft_cfg_float32_t cfg;
 
+// Grain src time domain input
+ne10_fft_cpx_float32_t* grainSrcTimeDomainIn;
+// Final frequency domain representation of current range with max size GRAIN_FFT_INTERVAL
+std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> grainSrcFrequencyDomain = {};
+
 // Large buffer that's updated every ~1s given that no keys are pressed
 // Once a key is pressed, this buffer will be used as source material
 // to extract grains from
@@ -59,11 +66,13 @@ int gReadPtr = 0;
 
 // Auxiliary task for calculating FFT
 AuxiliaryTask gFFTTask;
+AuxiliaryTask updateGrainSrcBufferTask;
 int gFFTInputBufferPointer = 0;
 int gFFTOutputBufferPointer = 0;
 
 // Necessary function definition for running an auxiliary task later
 void process_fft_background(void*);
+void process_grain_src_buffer_update_background(void*);
 
 float *gInputAudio = NULL;
 
@@ -78,8 +87,17 @@ std::vector<Voice> voiceObjects = {};
 // Expose sample rate
 int gSampleRate = 0;
 
-// Locks
-// std::atomic<bool> canAccessBuffer (true);
+// Browser-based GUI to adjust parameters
+Gui gui;
+GuiController controller;
+// Slider indices
+unsigned int positionSlider;
+unsigned int rangeSlider;
+
+int currentSourcePosition = 0;
+int currentRange = 0;
+int prevSourcePosition = 0;
+int prevSourceRange = 0;
 
 void midiCallback(MidiChannelMessage message, void* arg){
 	// Note on event: Find the next free voice and assign frequency coming from MIDI note
@@ -97,7 +115,7 @@ void midiCallback(MidiChannelMessage message, void* arg){
 					// Assign frequency of incoming MIDI note
 					voices[i] = frequency;
 					// Trigger note on event
-					voiceObjects[i].noteOn(*currentGrainBuffer, frequency);
+					voiceObjects[i].noteOn(grainSrcFrequencyDomain, frequency);
 					
 					// Print note info
 					rt_printf("\nnote: %d, frequency: %f \n", note, frequency);
@@ -155,6 +173,19 @@ bool setup(BelaContext *context, void *userData)
 	frequencyDomain = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
 	cfg = ne10_fft_alloc_c2c_float32_neon (N_FFT);
 	
+	// NEWWWWWWWWWWWW ---------------------------------------------------------------------------------------------------------
+	grainSrcTimeDomainIn = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
+	// Initialise grain buffers
+	for (int i = 0; i < GRAIN_FFT_INTERVAL; i++){
+		grainSrcFrequencyDomain[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
+
+		for (int k = 0; k < N_FFT; k++){
+			grainSrcFrequencyDomain[i][k].r = 0.0f;
+			grainSrcFrequencyDomain[i][k].i = 0.0f;
+		}
+	}
+	// END NEW ----------------------------------------------------------------------------------------------------------------
+	
 	// Initialise grain buffers
 	for (int i = 0; i < GRAIN_FFT_INTERVAL; i++){
 		frequencyDomainGrainBuffer[i] = (ne10_fft_cpx_float32_t*) NE10_MALLOC (N_FFT * sizeof (ne10_fft_cpx_float32_t));
@@ -192,6 +223,9 @@ bool setup(BelaContext *context, void *userData)
 	if((gFFTTask = Bela_createAuxiliaryTask(&process_fft_background, 90, "fft-calculation")) == 0)
 		return false;
 		
+	if((updateGrainSrcBufferTask = Bela_createAuxiliaryTask(&process_grain_src_buffer_update_background, 90, "grain-src-update")) == 0)
+		return false;
+		
 	// Setup MIDI
 	midi.readFrom(0);
 	midi.setParserCallback(midiCallback);
@@ -209,6 +243,17 @@ bool setup(BelaContext *context, void *userData)
 		Voice* voice = new Voice(gSampleRate);
 		voiceObjects.push_back(*voice);
 	}
+	
+	rt_printf("Project name is: %s\n", context->projectName); 
+	// Set up the GUI
+	// Project name hardcoded here until the empty string for projectName 
+	// problem is fixed
+	gui.setup("pitch-aware-granular-synth");
+	controller.setup(&gui, "Controls");	
+	
+	// Arguments: name, default value, minimum, maximum, increment
+	positionSlider = controller.addSlider("Source position", 0, 0, FILE_LENGTH, 1000);
+	rangeSlider = controller.addSlider("Source range", int(gSampleRate), int(gSampleRate), MAX_GRAIN_SAMPLES, 1000);
 	
 	return true;
 }
@@ -268,15 +313,50 @@ void process_fft(float *inBuffer, int inWritePointer, float *outBuffer, int outW
 	}
 }
 
+void process_grain_src_buffer_update(int rangeStart, int range){
+	// Calculate number of hops we need for the current range
+	int nHops = range / FFT_HOP_SIZE - 1;
+	rt_printf("Total number of hops for grain src buffer update: %i \n", nHops);
+
+	// Copy sample buffer into FFT input until range is reached
+	for (int hop = 0; hop < nHops; hop++){
+		int currentStart = hop * FFT_HOP_SIZE;
+		for(int n = 0; n < N_FFT; n++) {
+			grainSrcTimeDomainIn[n].r = (ne10_float32_t) gSampleData.samples[rangeStart + currentStart + n] * gWindowBuffer[n];
+			grainSrcTimeDomainIn[n].i = 0;
+		}
+		
+		// Perform FFT -> indicated by the "0" for the last function parameter 
+		ne10_fft_c2c_1d_float32_neon (grainSrcFrequencyDomain[hop], grainSrcTimeDomainIn, cfg, 0);
+	}
+	
+	rt_printf("Done updating grain src buffer \n");
+}
+
 // Function to process the FFT in a thread at lower priority
 void process_fft_background(void*) {
 	process_fft(gInputBuffer, gFFTInputBufferPointer, gOutputBuffer, gFFTOutputBufferPointer);
 }
 
+void process_grain_src_buffer_update_background(void *){
+	process_grain_src_buffer_update(currentSourcePosition, currentRange);
+}
+
 void render(BelaContext *context, void *userData)
 {
+	// Get slider values
+	// Where we are in the sample
+	currentSourcePosition = int(controller.getSliderValue(positionSlider));
+	// How far we can look for sample positions
+	currentRange = int(controller.getSliderValue(rangeSlider));	
+	
 	// Get number of audio frames
 	int numAudioFrames = context->audioFrames;
+	
+	// If source position or source range changed update the grain source buffer
+	if (currentSourcePosition != prevSourcePosition || currentRange != prevSourceRange){
+		Bela_scheduleAuxiliaryTask(updateGrainSrcBufferTask);
+	}
 
 	// Prep the "input" to be the sound file played in a loop
 	for(int n = 0; n < numAudioFrames; n++) {
@@ -319,7 +399,7 @@ void render(BelaContext *context, void *userData)
 			gFFTInputBufferPointer = gInputBufferPointer;
 			gFFTOutputBufferPointer = gOutputBufferWritePointer;
 			
-			Bela_scheduleAuxiliaryTask(gFFTTask);
+			// Bela_scheduleAuxiliaryTask(gFFTTask);
 			
 			gSampleCount = 0;
 		}
@@ -334,6 +414,10 @@ void render(BelaContext *context, void *userData)
 			}
 		} 
 	}
+	
+	// Update previous source position and range
+	prevSourcePosition = currentSourcePosition;
+	prevSourceRange = currentRange;
 }
 
 void cleanup(BelaContext *context, void *userData)
@@ -345,9 +429,11 @@ void cleanup(BelaContext *context, void *userData)
 	free(gInputAudio);
 	free(gWindowBuffer);
 	
+	NE10_FREE(grainSrcTimeDomainIn);
 	// Memory for frequency domain mask
 	for (int i = 0; i < GRAIN_FFT_INTERVAL; i++){
 		NE10_FREE(frequencyDomainGrainBuffer[i]);
 		NE10_FREE(frequencyDomainGrainBufferSwap[i]);
+		NE10_FREE(grainSrcFrequencyDomain[i]);
 	}
 }
