@@ -19,18 +19,23 @@ Voice::Voice(float sampleRate) {
 	grainPositions = {};
 	for (int i = 0; i < numberOfGrains; i++){
 		// Create grain
-		Grain* grain = new Grain(MAX_GRAIN_LENGTH / 3);
+		Grain* grain = new Grain(MAX_GRAIN_SAMPLES);
 		grains.push_back(*grain);
 		
 		// Initialise grain buffer position as well
 		grainPositions.push_back(NOT_PLAYING_I);
 	}
 	
+	// Calculate window
+	for(int i = 0; i < MAX_GRAIN_LENGTH; i++) {
+		window[i] = 0.5f * (1.0f - cosf(2.0f * M_PI * i / (float)(MAX_GRAIN_LENGTH - 1)));
+	}
+	
 	// Initialise random generator
 	srand (time(NULL));
 }
 
-void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer, float frequency){
+void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer, float frequency, int grainLength){
 	this->frequency = frequency;
 	this->bufferPosition = 0;
 	
@@ -40,10 +45,10 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 	}
 	
 	// Extract frequencies from grain source buffer
-	int binF0 = int(map(frequency, 0.0f, float(sampleRate) / 2.0f, 0.0f, float(N_FFT)));
-	// Define overtone bins
-	std::set<int> overtones;
-	int nOvertones = 20;
+	int binF0 = int(map(frequency, 0.0f, float(sampleRate) / 2.0f, 0.0f, float(N_FFT / 2 + 1)));
+	
+	// Clear overtone bins
+	overtones.clear();
 	for (int i = 0; i < nOvertones; i++){
 		auto current = binF0 * (i + 1);
 		if(current >= N_FFT)
@@ -51,6 +56,90 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 		overtones.insert(current);
 	}
 
+	// Update grain source buffer
+	updateGrainSrcBuffer(grainSrcBuffer);
+	
+	// Default starting position is buffer start
+	int grainStartPosition = 0;
+	
+	for (int i = 0; i < numberOfGrains; i++){
+		if(scatter == 0){
+			grainStartPosition = 0;
+		}
+		// If scatter > 0 pseudorandomly spread out the grain start positions
+		else {
+			int random = getRandomInRange(MAX_GRAIN_SAMPLES);
+			grainStartPosition = int(0.01 * scatter * random);
+		}
+		// Check if length would go past buffer limit and wrap around if necessary (start from the beginning)
+		if(grainStartPosition + grainLength >= MAX_GRAIN_SAMPLES){
+			grainStartPosition = grainStartPosition + grainLength - MAX_GRAIN_SAMPLES;
+		}
+		// Update grain length (can be set dynamically in the user interface)
+		grains[i].updateLength(grainLength);
+		
+		// Assign grain start idx
+		grains[i].bufferStartIdx = grainStartPosition;
+	}
+	
+	// Start playing first grain
+	grainPositions[0] = 0;
+}
+
+float Voice::play(){
+	// Output
+	float mix = 0.0f;
+	
+	// Iterate over the grains currently playing and add their
+	// sample values to the mix
+	for (int grainIdx = 0; grainIdx < numberOfGrains; grainIdx++){
+		if(grainPositions[grainIdx] > NOT_PLAYING_I){
+			// Get current sample for grain
+			int grainStartIdx = grains[grainIdx].bufferStartIdx;
+			auto currentGrainPos = grainPositions[grainIdx];
+			auto currentSample = buffer[grainStartIdx + currentGrainPos] * window[currentGrainPos];
+			
+			// Add current sample to mix
+			mix += currentSample;
+			
+			// Update sample position for grain buffer
+			grainPositions[grainIdx]++;
+	
+			// Reset sample position if over grain buffer length and stop playing
+			if(grainPositions[grainIdx] >= grains[grainIdx].length){
+				grainPositions[grainIdx] = NOT_PLAYING_I;
+			}
+		}
+	}
+	
+	// Check if a new grain should be triggered, i.e. if grainFrequency samples elapsed
+	if(sampleCounter >= grainFrequency){
+		// Trigger new grain
+		int nextFree = findNextFreeGrainIdx();
+		if(scatter > 0){
+			// Add randomness to the next grain triggered
+			nextFree += getRandomInRange(numberOfGrains);
+			if(nextFree > numberOfGrains)
+				nextFree -= numberOfGrains + 1;
+		}
+		grainPositions[nextFree] = 0;
+		
+		// Reset sample counter
+		sampleCounter = 0;
+	}
+	
+	// Update sample counter
+	sampleCounter++;
+		
+	return mix;
+}
+
+void Voice::updateGrainSrcBuffer(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer){
+	bufferPosition = 0;
+	// Clear buffer
+	for (int i = 0; i < MAX_GRAIN_SAMPLES; i++){
+		buffer[i] = 0.0f;
+	}
 	// Create a mask for the frequency domain representation based on the current fundamental frequency
 	for (int hop = 0; hop < GRAIN_FFT_INTERVAL; hop++){
 		for (int k = 0; k < N_FFT; k++){
@@ -62,7 +151,7 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 				currentMask[k].i = 0.0f;
 			} else {
 				// Include current bin in mask
-				currentMask[k].r = grainSrcBuffer[hop][k].r * 10;
+				currentMask[k].r = grainSrcBuffer[hop][k].r;
 				currentMask[k].i = grainSrcBuffer[hop][k].i;
 			}
 		}
@@ -84,71 +173,12 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 		}
 	}
 	
-	// Reset buffer position for grain slicing
-	bufferPosition = 0;
-	
-	for (int i = 0; i < numberOfGrains; i++){
-		// Get grain length
-		auto length = grains[i].length;
-		// Check if grain would go out of bounds
-		if (bufferPosition + length > MAX_GRAIN_SAMPLES){
-			rt_printf("Faulty grain start position/length combination! Resetting it... \n");
-			bufferPosition = bufferPosition + length - MAX_GRAIN_SAMPLES;
-		}
-		// Assign grain start idx
-		grains[i].bufferStartIdx = bufferPosition;
-		
-		// Increment buffer position by current grain length
-		bufferPosition += length;
+	// Normalise buffer level
+	float max = *std::max_element(buffer, buffer + MAX_GRAIN_SAMPLES);
+	float min = *std::min_element(buffer, buffer + MAX_GRAIN_SAMPLES);
+	for (int i = 0; i < MAX_GRAIN_SAMPLES; i++){
+		buffer[i] = map(buffer[i], min, max, -0.5f, 0.5f);
 	}
-	
-	// Start playing numberOfGrainsPlayback grains
-	for (int i = 0; i < numberOfGrainsPlayback; i++){
-		grainPositions[i] = 0;
-	}
-}
-
-float Voice::play(){
-	// Output
-	float mix = 0.0f;
-	
-	waitCounter++;
-	
-	int currentlyPlaying = 0;
-	
-	// Iterate over the grains currently playing and add their
-	// sample values to the mix
-	for (int grainIdx = 0; grainIdx < numberOfGrains; grainIdx++){
-		if(grainPositions[grainIdx] > NOT_PLAYING_I){
-			currentlyPlaying++;
-			// Get current sample for grain
-			int grainStartIdx = grains[grainIdx].bufferStartIdx;
-			auto currentGrainPos = grainPositions[grainIdx];
-			auto currentSample = buffer[grainStartIdx + currentGrainPos] * grains[grainIdx].window[currentGrainPos];
-			// Add current sample to mix
-			mix += currentSample;
-			// Update sample position for grain buffer
-			grainPositions[grainIdx]++;
-			
-			// Reset sample position if over grain buffer length
-			if(grainPositions[grainIdx] >= grains[grainIdx].length){
-				// Stop playback for this grain
-				grainPositions[grainIdx] = NOT_PLAYING_I;
-			}
-		}
-	}
-
-	if(waitCounter > waitLimit && currentlyPlaying < numberOfGrainsPlayback){
-		// Find new free grain and playyy
-		int nextFreeGrainIdx = findNextFreeGrainIdx();
-		grainPositions[nextFreeGrainIdx] = 0;
-		waitCounter = waitCounter / (getRandomInRange(10) + 1);
-	}
-	//mix = buffer[bufferPosition++];
-	//if(bufferPosition >= sizeof(buffer) / sizeof(*buffer))
-	//	bufferPosition = 0;
-		
-	return mix;
 }
 
 void Voice::noteOff(){
@@ -157,6 +187,50 @@ void Voice::noteOff(){
 	// Reset grain positions
 	for (auto& pos : grainPositions){
 		pos = NOT_PLAYING_I;
+	}
+}
+
+void Voice::setGrainLength(int grainLengthSamples){
+	this->grainLength = grainLengthSamples;
+	
+	// Update window length
+	for(int i = 0; i < grainLengthSamples; i++) {
+		window[i] = 0.5f * (1.0f - cosf(2.0f * M_PI * i / (float)(grainLengthSamples - 1)));
+	}
+	
+	// On grain length changes the window needs to be recalculated as well
+	for(auto& grain : grains){
+		auto grainStartPosition = grain.bufferStartIdx;
+		// Check if length would go past buffer limit and adjust accordingly
+		if(grainStartPosition + grainLength >= MAX_GRAIN_SAMPLES){
+			grainStartPosition = grainStartPosition + grainLength - MAX_GRAIN_SAMPLES;
+		}
+		// Update grain length (can be set dynamically in the user interface)
+		// This also recalculates the hann window
+		grain.bufferStartIdx = grainStartPosition;
+		grain.updateLength(grainLength);
+	}
+}
+
+void Voice::setGrainFrequency(int grainFrequencySamples){
+	this->grainFrequency = grainFrequencySamples;
+}
+
+void Voice::setScatter(int scatter){
+	this->scatter = scatter;
+	
+	for(auto& grain : grains){
+		auto grainStartPosition = 0;
+		// If scatter > 0 pseudorandomly spread out the grain start positions
+		if(scatter > 0) {
+			int random = getRandomInRange(MAX_GRAIN_SAMPLES);
+			grainStartPosition = int(0.01 * scatter * random);
+		}
+		// Check if length would go past buffer limit and wrap around if necessary (start from the beginning)
+		if(grainStartPosition + grainLength >= MAX_GRAIN_SAMPLES){
+			grainStartPosition = grainStartPosition + grainLength - MAX_GRAIN_SAMPLES;
+		}
+		grain.bufferStartIdx = grainStartPosition;
 	}
 }
 

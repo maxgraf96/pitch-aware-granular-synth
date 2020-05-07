@@ -39,7 +39,7 @@ ne10_fft_cfg_float32_t cfg;
 
 // Grain src time domain input
 ne10_fft_cpx_float32_t* grainSrcTimeDomainIn;
-// Final frequency domain representation of current range with max size GRAIN_FFT_INTERVAL
+// Final frequency domain representation of current slice of GRAIN_FFT_INTERVAL FFT hops
 std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> grainSrcFrequencyDomain = {};
 
 // Large buffer that's updated every ~1s given that no keys are pressed
@@ -92,12 +92,28 @@ Gui gui;
 GuiController controller;
 // Slider indices
 unsigned int positionSlider;
-unsigned int rangeSlider;
+unsigned int scatterSlider;
+unsigned int grainLengthSlider;
+unsigned int grainFrequencySlider;
+unsigned int mainOutputGainSlider;
 
+// Current selected position in source file
+// Can be changed via GUI
 int currentSourcePosition = 0;
-int currentRange = 0;
+// Current scatter of grains in Voices (if greater than 0, will shift start positions of grains)
+int currentScatter = 0;
+// Current grain length in ms (global for all grains)
+int currentGrainLength = 0;
+// Current grain frequency (how often to trigger a grain per second)
+int currentGrainFrequency = 0;
+// Main output gain
+float mainOutputGain = 0.0;
+
+// Previous values for GUI parameters
 int prevSourcePosition = 0;
-int prevSourceRange = 0;
+int prevScatter = 0;
+int prevGrainLength = 0;
+int prevGrainFrequency = 0;
 
 void midiCallback(MidiChannelMessage message, void* arg){
 	// Note on event: Find the next free voice and assign frequency coming from MIDI note
@@ -115,7 +131,7 @@ void midiCallback(MidiChannelMessage message, void* arg){
 					// Assign frequency of incoming MIDI note
 					voices[i] = frequency;
 					// Trigger note on event
-					voiceObjects[i].noteOn(grainSrcFrequencyDomain, frequency);
+					voiceObjects[i].noteOn(grainSrcFrequencyDomain, frequency, currentGrainLength);
 					
 					// Print note info
 					rt_printf("\nnote: %d, frequency: %f \n", note, frequency);
@@ -244,17 +260,21 @@ bool setup(BelaContext *context, void *userData)
 		voiceObjects.push_back(*voice);
 	}
 	
-	rt_printf("Project name is: %s\n", context->projectName); 
 	// Set up the GUI
 	// Project name hardcoded here until the empty string for projectName 
 	// problem is fixed
-	gui.setup("pitch-aware-granular-synth");
+	gui.setup(context->projectName);
 	controller.setup(&gui, "Controls");	
 	
 	// Arguments: name, default value, minimum, maximum, increment
-	positionSlider = controller.addSlider("Source position", 0, 0, FILE_LENGTH, 1000);
-	rangeSlider = controller.addSlider("Source range", int(gSampleRate), int(gSampleRate), MAX_GRAIN_SAMPLES, 1000);
-	
+	positionSlider = controller.addSlider("Source position (samples)", FILE_LENGTH / 2, 0, FILE_LENGTH, 1000);
+	scatterSlider = controller.addSlider("Grain scatter", 0, 0, 100, 1);
+	// Grain length in ms
+	grainLengthSlider = controller.addSlider("Grain length (ms)", 100, 1, 500, 1);
+	// Grain frequency per second
+	grainFrequencySlider = controller.addSlider("Number of grains / s", 1, 1, 30, 1);
+	// Main output gain
+	mainOutputGainSlider = controller.addSlider("Main output gain", 0.5f, 0.0f, 1.0f, 0.01f);
 	return true;
 }
 
@@ -313,16 +333,12 @@ void process_fft(float *inBuffer, int inWritePointer, float *outBuffer, int outW
 	}
 }
 
-void process_grain_src_buffer_update(int rangeStart, int range){
-	// Calculate number of hops we need for the current range
-	int nHops = range / FFT_HOP_SIZE - 1;
-	rt_printf("Total number of hops for grain src buffer update: %i \n", nHops);
-
-	// Copy sample buffer into FFT input until range is reached
-	for (int hop = 0; hop < nHops; hop++){
+void process_grain_src_buffer_update(int startIdx){
+	// Copy part of sample buffer into FFT input from given start index
+	for (int hop = 0; hop < GRAIN_FFT_INTERVAL; hop++){
 		int currentStart = hop * FFT_HOP_SIZE;
 		for(int n = 0; n < N_FFT; n++) {
-			grainSrcTimeDomainIn[n].r = (ne10_float32_t) gSampleData.samples[rangeStart + currentStart + n] * gWindowBuffer[n];
+			grainSrcTimeDomainIn[n].r = (ne10_float32_t) gSampleData.samples[startIdx + currentStart + n] * gWindowBuffer[n];
 			grainSrcTimeDomainIn[n].i = 0;
 		}
 		
@@ -330,7 +346,13 @@ void process_grain_src_buffer_update(int rangeStart, int range){
 		ne10_fft_c2c_1d_float32_neon (grainSrcFrequencyDomain[hop], grainSrcTimeDomainIn, cfg, 0);
 	}
 	
-	rt_printf("Done updating grain src buffer \n");
+	// Update grain source buffer for all playing voices
+	for (int i = 0; i < NUM_VOICES; i++){
+		if(voices[i] > NOT_PLAYING)
+			voiceObjects[i].updateGrainSrcBuffer(grainSrcFrequencyDomain);
+	}
+	
+	rt_printf("Done updating grain source buffer \n");
 }
 
 // Function to process the FFT in a thread at lower priority
@@ -339,7 +361,7 @@ void process_fft_background(void*) {
 }
 
 void process_grain_src_buffer_update_background(void *){
-	process_grain_src_buffer_update(currentSourcePosition, currentRange);
+	process_grain_src_buffer_update(currentSourcePosition);
 }
 
 void render(BelaContext *context, void *userData)
@@ -347,14 +369,38 @@ void render(BelaContext *context, void *userData)
 	// Get slider values
 	// Where we are in the sample
 	currentSourcePosition = int(controller.getSliderValue(positionSlider));
-	// How far we can look for sample positions
-	currentRange = int(controller.getSliderValue(rangeSlider));	
+	// Convert grain length from ms to samples and pass to voices
+	currentGrainLength = int(controller.getSliderValue(grainLengthSlider) * 0.001 * gSampleRate);
+	// Grain frequency per second
+	currentGrainFrequency = int(gSampleRate / controller.getSliderValue(grainFrequencySlider));
+	// How scattered the grain start positions should be 
+	currentScatter = int(controller.getSliderValue(scatterSlider));	
+	// Main output gain
+	mainOutputGain = controller.getSliderValue(mainOutputGainSlider);
+	
+	// Update voice parameters if changed
+	if(currentScatter != prevScatter){
+		for(Voice& voice : voiceObjects){
+			voice.setScatter(currentScatter);
+		}
+	}
+	if(currentGrainLength != prevGrainLength){
+		rt_printf("Grain length changed \n");
+		for(Voice& voice : voiceObjects){
+			voice.setGrainLength(currentGrainLength);
+		}
+	}
+	if(currentGrainFrequency != prevGrainFrequency){
+		for(Voice& voice : voiceObjects){
+			voice.setGrainFrequency(currentGrainFrequency);
+		}
+	}
 	
 	// Get number of audio frames
 	int numAudioFrames = context->audioFrames;
 	
-	// If source position or source range changed update the grain source buffer
-	if (currentSourcePosition != prevSourcePosition || currentRange != prevSourceRange){
+	// If source position changed, update the grain source buffer
+	if (currentSourcePosition != prevSourcePosition){
 		Bela_scheduleAuxiliaryTask(updateGrainSrcBufferTask);
 	}
 
@@ -413,11 +459,16 @@ void render(BelaContext *context, void *userData)
 				}
 			}
 		} 
+		
+		// Apply main output gain
+		gOutputBuffer[gOutputBufferWritePointer] *= mainOutputGain;
 	}
 	
-	// Update previous source position and range
+	// Update previous source position
 	prevSourcePosition = currentSourcePosition;
-	prevSourceRange = currentRange;
+	prevScatter = currentScatter;
+	prevGrainLength = currentGrainLength;
+	prevGrainFrequency = currentGrainFrequency;
 }
 
 void cleanup(BelaContext *context, void *userData)

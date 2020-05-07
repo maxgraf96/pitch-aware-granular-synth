@@ -4,6 +4,7 @@
 #include <memory>
 #include <set>
 #include <stdlib.h>
+#include <algorithm>
 #include <time.h>
 #include <libraries/ne10/NE10.h> // NEON FFT library
 #include <numeric>
@@ -16,9 +17,14 @@ class Voice {
 		Voice(float sampleRate);
 		~Voice();
 		
-		void noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer, float frequency);
+		// Trigger a voice with specified frequency and grain length
+		void noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer, float frequency, int grainLength);
 		void noteOff();
 		float play();
+		void updateGrainSrcBuffer(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grainSrcBuffer);
+		void setGrainLength(int grainLengthSamples);
+		void setGrainFrequency(int grainFrequencySamples);
+		void setScatter(int scatter);
 	private:
 		// Sample rate of the system
 		float sampleRate = 0.0f;
@@ -52,12 +58,12 @@ class Voice {
 		// Current buffer positions for grains 
 		std::vector<int> grainPositions;
 		
-		// Number of grains that should play at once
-		int numberOfGrainsPlayback = 20;
+		// Hann window for all grains
+		std::array<float, MAX_GRAIN_LENGTH> window = {};
 		
-		// How long to wait before triggering a new sample
-		int waitLimit = MAX_GRAIN_SAMPLES / 3;
-		int waitCounter = 0;
+		// Counter to check whether or not to start a new grain
+		// (depending on the grainFrequency)
+		int sampleCounter = 0;
 		
 		// Helper function to find the next non-playing grain sequentially
 		// I.e. always returns the next free grain with the lowest index 
@@ -67,5 +73,18 @@ class Voice {
 		bool getRandomBool();
 		// Return a random number from 0 to the given upper limit
 		int getRandomInRange(int upperLimit);
+		
+		// Grain length in samples
+		int grainLength = 0;
+		// How often to trigger a grain in samples
+		int grainFrequency = 0;
+		// Scatter: [0...100], will pseudorandomly change grain start positions
+		int scatter = 0;
+		
+		// Timbral stuff
+		// Set of fft bins used in frequency extraction
+		std::set<int> overtones;
+		// Number of overtones to include in frequency extraction process
+		int nOvertones = 20;
 		
 };

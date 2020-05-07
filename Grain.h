@@ -13,10 +13,10 @@ class Grain {
 		// The length of the grain in samples
 		int length = 0;
 		
-		std::array<float, MAX_GRAIN_LENGTH> window = {};
-		
 		Grain();
 		Grain(int length);
+		
+		void updateLength(int length);
 		
 		~Grain();
 };

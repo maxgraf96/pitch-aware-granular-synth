@@ -27,6 +27,7 @@ The Bela software is distributed under the GNU Lesser General Public License
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
+#include <string.h>
 #include <libgen.h>
 #include <signal.h>
 #include <getopt.h>
@@ -148,6 +149,11 @@ int main(int argc, char *argv[])
 	settings->cleanup = cleanup;
 
 	settings->periodSize = 32; // Larger period size by default, for testing
+
+	// Set projectName
+	if(argc > 1 && argv[0]){
+		settings->projectName = strrchr(argv[0], '/') + 1;
+    }
 
 	// Parse command-line arguments
 	while (1) {
