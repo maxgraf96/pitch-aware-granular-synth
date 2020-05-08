@@ -1,7 +1,9 @@
 /***** Voice.cpp *****/
 #include "Voice.h"
 
-Voice::Voice(float sampleRate) {
+Voice::Voice(float sampleRate, Window& window) 
+	: window (window) {
+	
 	this->sampleRate = sampleRate;
 	cfg = ne10_fft_alloc_c2c_float32_neon (N_FFT);
 	
@@ -24,11 +26,6 @@ Voice::Voice(float sampleRate) {
 		
 		// Initialise grain buffer position as well
 		grainPositions.push_back(NOT_PLAYING_I);
-	}
-	
-	// Calculate window
-	for(int i = 0; i < MAX_GRAIN_LENGTH; i++) {
-		window[i] = 0.5f * (1.0f - cosf(2.0f * M_PI * i / (float)(MAX_GRAIN_LENGTH - 1)));
 	}
 	
 	// Initialise random generator
@@ -89,6 +86,14 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 float Voice::play(){
 	// Output
 	float mix = 0.0f;
+	// Number of currently playing grains
+	int currentlyPlaying = 0;
+	
+	for (int grainIdx = 0; grainIdx < numberOfGrains; grainIdx++){
+		if(grainPositions[grainIdx] > NOT_PLAYING_I){
+			currentlyPlaying++;
+		}
+	}
 	
 	// Iterate over the grains currently playing and add their
 	// sample values to the mix
@@ -97,10 +102,10 @@ float Voice::play(){
 			// Get current sample for grain
 			int grainStartIdx = grains[grainIdx].bufferStartIdx;
 			auto currentGrainPos = grainPositions[grainIdx];
-			auto currentSample = buffer[grainStartIdx + currentGrainPos] * window[currentGrainPos];
+			auto currentSample = buffer[grainStartIdx + currentGrainPos] * window.getAt(currentGrainPos);
 			
 			// Add current sample to mix
-			mix += currentSample;
+			mix += currentSample / float(currentlyPlaying);
 			
 			// Update sample position for grain buffer
 			grainPositions[grainIdx]++;
@@ -130,7 +135,9 @@ float Voice::play(){
 	
 	// Update sample counter
 	sampleCounter++;
-		
+	
+	// Attenuate mix by number of currently playing grains
+	
 	return mix;
 }
 
@@ -174,11 +181,11 @@ void Voice::updateGrainSrcBuffer(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_I
 	}
 	
 	// Normalise buffer level
-	float max = *std::max_element(buffer, buffer + MAX_GRAIN_SAMPLES);
+	/*float max = *std::max_element(buffer, buffer + MAX_GRAIN_SAMPLES);
 	float min = *std::min_element(buffer, buffer + MAX_GRAIN_SAMPLES);
 	for (int i = 0; i < MAX_GRAIN_SAMPLES; i++){
 		buffer[i] = map(buffer[i], min, max, -0.5f, 0.5f);
-	}
+	}*/
 }
 
 void Voice::noteOff(){
@@ -193,12 +200,6 @@ void Voice::noteOff(){
 void Voice::setGrainLength(int grainLengthSamples){
 	this->grainLength = grainLengthSamples;
 	
-	// Update window length
-	for(int i = 0; i < grainLengthSamples; i++) {
-		window[i] = 0.5f * (1.0f - cosf(2.0f * M_PI * i / (float)(grainLengthSamples - 1)));
-	}
-	
-	// On grain length changes the window needs to be recalculated as well
 	for(auto& grain : grains){
 		auto grainStartPosition = grain.bufferStartIdx;
 		// Check if length would go past buffer limit and adjust accordingly
@@ -206,7 +207,6 @@ void Voice::setGrainLength(int grainLengthSamples){
 			grainStartPosition = grainStartPosition + grainLength - MAX_GRAIN_SAMPLES;
 		}
 		// Update grain length (can be set dynamically in the user interface)
-		// This also recalculates the hann window
 		grain.bufferStartIdx = grainStartPosition;
 		grain.updateLength(grainLength);
 	}

@@ -11,10 +11,11 @@
 #include <libraries/Midi/Midi.h>
 #include "Constants.h"
 #include "Grain.h"
+#include "Window.h"
 
 class Voice {
 	public:
-		Voice(float sampleRate);
+		Voice(float sampleRate, Window& window);
 		~Voice();
 		
 		// Trigger a voice with specified frequency and grain length
@@ -49,6 +50,9 @@ class Voice {
 		float buffer[MAX_GRAIN_SAMPLES];
 		int bufferPosition = NOT_PLAYING_I;
 		
+		// Reference to window from render.cpp
+		Window& window;
+		
 		// Total number of grains for this voice
 		int numberOfGrains = 30;
 		
@@ -57,9 +61,6 @@ class Voice {
 
 		// Current buffer positions for grains 
 		std::vector<int> grainPositions;
-		
-		// Hann window for all grains
-		std::array<float, MAX_GRAIN_LENGTH> window = {};
 		
 		// Counter to check whether or not to start a new grain
 		// (depending on the grainFrequency)

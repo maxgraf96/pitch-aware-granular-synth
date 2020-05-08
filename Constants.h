@@ -6,8 +6,8 @@
 #define MY_CONSTANTS_H
 #include <libraries/Midi/Midi.h> // For map function
 
-// Buffer length for circular buffer
-const int CB_LENGTH = 16384;
+// Buffer length for the main output buffer
+const int MAIN_BUFFER_LENGTH = 16384;
 
 // FFT params
 const int N_FFT = 4096;
@@ -15,6 +15,7 @@ const int FFT_HOP_SIZE = 1024;
 
 // System-wide indicator for "not playing"
 const float NOT_PLAYING = -1.0f;
+// int version
 const int NOT_PLAYING_I = -1;
 
 // Number of voices
