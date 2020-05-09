@@ -9,6 +9,12 @@ var guiSketch = new p5(function( sketch ) {
     // Whether the window changed, if it changed, redraw it
     let windowBufferChanged = 0;
     
+    let grainLength = 100;
+	let grainFrequency = 1;
+	let grainScatter = 0;
+	let windowTypeMod = 0;
+    let mainOutputGain = 0.5;
+    
     // Positioning helpers
     let marginTop = 32;
     
@@ -38,29 +44,44 @@ var guiSketch = new p5(function( sketch ) {
 	
 	// Flag for checking if length of source file was already set
 	let isSrcFileLengthSet = false;
-	
+	let windowChanged = false;
+	let modChanged = false;
+
     sketch.setup = function() {
+    	p5.disableFriendlyErrors = true;
+    	// Limit fps
+    	sketch.setFrameRate(30);
         sketch.createCanvas(canvas_dimensions[0], canvas_dimensions[1]);
         
         // Create sliders
         sourcePosY = headerY + marginTop;
         sourcePosSlider = undefined;
+        // The value
+        sourcePosition = 0;
 		
 		grainLengthSlider = sketch.createSlider(0, 500, 100, 1);
         grainLengthSlider.position(sliderX, grainLengthY = sourcePosY + marginTop);
 		grainLengthSlider.style('width', '240px');
+		grainLengthSlider.input(grainLengthChanged);
+		grainLengthChanged();
 		
 		grainFrequencySlider = sketch.createSlider(1, 30, 1, 1);
         grainFrequencySlider.position(sliderX, grainFrequencyY = grainLengthY + marginTop);
 		grainFrequencySlider.style('width', '240px');
+		grainFrequencySlider.input(grainFrequencyChanged);
+		grainFrequencyChanged();
 		
 		grainScatterSlider = sketch.createSlider(0, 100, 0, 1);
         grainScatterSlider.position(sliderX, grainScatterY = grainFrequencyY + marginTop);
 		grainScatterSlider.style('width', '240px');
+		grainScatterSlider.input(grainScatterChanged);
+		grainScatterChanged();
 		
 		mainOutputGainSlider = sketch.createSlider(0, 1, 0.5, 0.01);
         mainOutputGainSlider.position(sliderX, mainOutputGainY = grainScatterY + marginTop);
 		mainOutputGainSlider.style('width', '240px');
+		mainOutputGainSlider.input(mainOutputGainChanged);
+		mainOutputGainChanged();
 		
 		// Create select for window
 		windowSel = sketch.createSelect();
@@ -71,16 +92,16 @@ var guiSketch = new p5(function( sketch ) {
 		windowSel.option('Trapezoidal');
 		windowSel.selected('Hann');
 		windowSel.changed(windowTypeSend);
-		
+
 		windowTypeModSlider = sketch.createSlider(0.01, 1, 0.5, 0.01);
         windowTypeModSlider.position(sliderX, windowTypeModSliderY = windowSelY + marginTop);
 		windowTypeModSlider.style('width', '240px');
-		let windowTypeMod = 0;
+		windowTypeModSlider.input(windowTypeModChanged);
 		
+		sketch.noLoop();
     };
 
     sketch.draw = function() {
-    	
     	// In order to set the range of the source position slider correctly
     	// we wait until render.cpp sends us the file length in samples
     	// (this happens during the first render() call)
@@ -91,15 +112,20 @@ var guiSketch = new p5(function( sketch ) {
     		sourcePosSlider = sketch.createSlider(0, fileLengthSamples, fileLengthSamples / 2, 1000);
 	        sourcePosSlider.position(sliderX, sourcePosY);
 			sourcePosSlider.style('width', '240px');
+			sourcePosSlider.input(sourcePositionChanged);
+			
+			// Send updated src position once
+			sourcePosition = fileLengthSamples / 2;
+			sourcePositionChanged();
+			
 			// Update the flag
 			isSrcFileLengthSet = true;
     	}
         
-        // Clear canvas
-        sketch.clear();
-        
         // Draw a white background
-        sketch.background(255, 0);
+        sketch.background(255);
+        
+        sketch.noStroke();
         
         // Draw text and labels
         sketch.textSize(24);
@@ -119,14 +145,13 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text('Window Modifier', labelX, windowTypeModSliderY + sliderHeight);
 		
         // Get values from sliders
-        let sourcePosition = 0;
         if(sourcePosSlider !== undefined){
         	sourcePosition = sourcePosSlider.value();
         }
-        let grainLength = grainLengthSlider.value();
-        let grainFrequency = grainFrequencySlider.value();
-        let grainScatter = grainScatterSlider.value();
-        let mainOutputGain = mainOutputGainSlider.value();
+        grainLength = grainLengthSlider.value();
+        grainFrequency = grainFrequencySlider.value();
+        grainScatter = grainScatterSlider.value();
+        mainOutputGain = mainOutputGainSlider.value();
         windowTypeMod = windowTypeModSlider.value();
         
         // Draw slider values
@@ -135,7 +160,6 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text(grainFrequency, sliderValuesX, grainFrequencyY + sliderHeight);
 		sketch.text(grainScatter, sliderValuesX, grainScatterY + sliderHeight);
 		sketch.text(mainOutputGain.toFixed(2), sliderValuesX, mainOutputGainY + sliderHeight);
-		
 		sketch.text(windowTypeMod.toFixed(2), sliderValuesX, windowTypeModSliderY + sliderHeight);
 		
 		// Update the grain window rendering if it changed
@@ -143,27 +167,60 @@ var guiSketch = new p5(function( sketch ) {
 		if(windowBufferChanged !== undefined && windowBufferChanged[0] == 1){
 			// Update window length 
 			windowLength = windowBufferChanged[1];
-			
-			if (Bela.data.buffers[0] !== undefined){
+		}
+		
+		if (Bela.data.buffers[0] !== undefined && windowChanged){
+			setTimeout(() => {
 				// Update window data
 				// Slice used here to only include the relevant part of the window
 				// as the window array in C++ is fixed size
 				windowData = Bela.data.buffers[0].slice(0, windowLength);
-			}
+				
+				// Draw the current grain window
+				drawWindow();
+				
+				windowChanged = false;
+				
+				// Disable looping
+				sketch.noLoop();
+			}, 300);
+			
 		}
 		
 		// Draw the current grain window
 		drawWindow();
-		
-		// Send values from sliders back to render.cpp
-		Bela.data.sendBuffer(2, 'int', sourcePosition);
-		Bela.data.sendBuffer(3, 'int', grainLength);
-		Bela.data.sendBuffer(4, 'int', grainFrequency);
-		Bela.data.sendBuffer(5, 'int', grainScatter);
-		Bela.data.sendBuffer(6, 'float', mainOutputGain);
-		
-		windowTypeSend();
     };
+    
+    function sourcePositionChanged(){
+		Bela.data.sendBuffer(2, 'int', sourcePosition);
+    	sketch.redraw();
+    }
+    
+    function grainLengthChanged(){
+    	Bela.data.sendBuffer(3, 'int', grainLength);
+    	sketch.redraw();
+    }
+    
+    function grainFrequencyChanged(){
+    	Bela.data.sendBuffer(4, 'int', grainFrequency);
+    	sketch.redraw();
+    }
+    
+    function grainScatterChanged(){
+    	Bela.data.sendBuffer(5, 'int', grainScatter);
+    	sketch.redraw();
+    }
+    
+    function windowTypeModChanged(){
+    	modChanged = true;
+    	windowTypeSend();
+    	modChanged = false;
+    }
+    
+    function mainOutputGainChanged(){
+    	Bela.data.sendBuffer(6, 'float', mainOutputGain);
+    	sketch.redraw();
+    }
     
     // Helper function to draw the current grain window representation
     function drawWindow(){
@@ -196,9 +253,20 @@ var guiSketch = new p5(function( sketch ) {
 				break;
 			case "Trapezoidal":
 				coded = 3;
+				// For the trapezoidal window the modifier value is in the range [0...10]
+				windowTypeMod = windowTypeMod * 10;
 				break;
 		}
+		
 		Bela.data.sendBuffer(8, 'float', [coded, windowTypeMod]);
+
+		windowChanged = true;
+		// Only loop on select change as mod change calls redraw by itself
+		if(!modChanged){
+			sketch.loop();
+		} else {
+			sketch.redraw();
+		}
 	}
     
 }, 'gui');

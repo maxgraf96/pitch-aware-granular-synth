@@ -150,7 +150,7 @@ bool setup(BelaContext *context, void *userData)
 	}
 	
 	// Initialise auxiliary task	
-	if((updateGrainSrcBufferTask = Bela_createAuxiliaryTask(&processGrainSrcBufferUpdateBackground, 90, "grain-src-update")) == 0)
+	if((updateGrainSrcBufferTask = Bela_createAuxiliaryTask(&processGrainSrcBufferUpdateBackground, 94, "grain-src-update")) == 0)
 		return false;
 	
 	// For async grain window update
@@ -227,8 +227,6 @@ void processGrainSrcBufferUpdate(int startIdx){
 }
 
 void processGrainWindowUpdate(){
-	// rt_printf("Grain window has changed. Updating... \n");
-	
 	// Update grain window type (also sets length)
 	grainWindow->updateWindow(currentGrainLength, currentWindowType, currentWindowModifier);
 	
