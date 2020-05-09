@@ -43,10 +43,14 @@ using namespace std;
 // Global variables used by getCurrentTime()
 unsigned long long gFirstSeconds, gFirstMicroseconds;
 
-int FILE_LENGTH;
+int FILE_LENGTH1;
+int FILE_LENGTH2;
+int FILE_LENGTH3;
+
+
 
 // Load samples from file
-int initFile(string file, SampleData *smp)//float *& smp)
+int initFile(string file, SampleData *smp)
 {
 	SNDFILE *sndfile;
 	SF_INFO sfinfo;
@@ -125,7 +129,19 @@ double getCurrentTime(void) {
 	result = (tv.tv_sec - gFirstSeconds) * 1000000ULL + (tv.tv_usec - gFirstMicroseconds);
 	return (double)result / 1000000.0;
 }
-extern SampleData gSampleData;
+
+// Array of all available source songs
+SampleData songs[3] = {};
+// First song
+string fileName1 = "betti.wav";
+SampleData gSampleData1;
+// Second song
+string fileName2 = "hawt.wav";
+SampleData gSampleData2;
+// Third song
+string fileName3 = "oneplustwo.wav";
+SampleData gSampleData3;
+
 int main(int argc, char *argv[])
 {
 	BelaInitSettings* settings = Bela_InitSettings_alloc();	// Standard audio settings
@@ -139,8 +155,15 @@ int main(int argc, char *argv[])
 		{NULL, 0, NULL, 0}
 	};
 
-	gSampleData.samples = 0;
-	gSampleData.sampleLen = -1;
+	gSampleData1.samples = 0;
+	gSampleData1.sampleLen = -1;
+	
+	gSampleData2.samples = 0;
+	gSampleData2.sampleLen = -1;
+	
+	gSampleData3.samples = 0;
+	gSampleData3.sampleLen = -1;
+	
 
 	// Set default settings
 	Bela_defaultSettings(settings);
@@ -181,27 +204,37 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if(fileName.empty()){
-		fileName = "betti.wav";
-	}
-
-
-	// Load file
-	if(initFile(fileName, &gSampleData) != 0)
+	// Load files
+	if(initFile(fileName1, &gSampleData1) != 0)
 	{
 		cout << "Error: unable to load samples " << endl;
 		return 1;
 	}
-
-	if(settings->verbose)
-		cout << "File contains " << gSampleData.sampleLen << " samples" << endl;
+	
+	if(initFile(fileName2, &gSampleData2) != 0)
+	{
+		cout << "Error: unable to load samples " << endl;
+		return 1;
+	}
+	
+	if(initFile(fileName3, &gSampleData3) != 0)
+	{
+		cout << "Error: unable to load samples " << endl;
+		return 1;
+	}
 		
 	// Assign FILE_LENGTH for use in render.cpp
-	FILE_LENGTH = gSampleData.sampleLen;
+	FILE_LENGTH1 = gSampleData1.sampleLen;
+	FILE_LENGTH2 = gSampleData2.sampleLen;
+	FILE_LENGTH3 = gSampleData3.sampleLen;
 
-
+	// Assign songs to Array
+	songs[0] = gSampleData1;
+	songs[1] = gSampleData2;
+	songs[2] = gSampleData3;
+	
 	// Initialise the PRU audio device
-	if(Bela_initAudio(settings, &gSampleData) != 0) {
+	if(Bela_initAudio(settings, &songs) != 0) {
 		Bela_InitSettings_free(settings);
 		cout << "Error: unable to initialise audio" << endl;
 		return 1;

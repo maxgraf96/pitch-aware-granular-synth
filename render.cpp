@@ -35,7 +35,11 @@ ne10_fft_cpx_float32_t* grainSrcTimeDomainIn;
 std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> grainSrcFrequencyDomain = {};
 
 // Sample info
-SampleData gSampleData;
+SampleData* gSampleData;
+
+// Which song serves as the source buffer
+// 0 = betti.wav, 1 = hawt.wav, 2 = oneplustwo.wav
+int currentSong = 0;
 
 // Position of last read sample from audio file
 int gReadPtr = 0;
@@ -113,8 +117,12 @@ bool setup(BelaContext *context, void *userData)
 	}
 	
 	// Retrieve a parameter passed in from the initAudio() call
-	gSampleData = *(SampleData *)userData;
-	rt_printf("Sample data length: %4.2f seconds \n", (gSampleData.sampleLen / context->audioSampleRate));
+	//gSampleData = *(SampleData *)userData;
+	gSampleData = &songs[0];
+	
+	rt_printf("%i", sizeof(gSampleData->samples));
+
+	rt_printf("Sample data length: %4.2f seconds \n", (gSampleData->sampleLen / context->audioSampleRate));
 
 	gOutputBufferWritePointer += FFT_HOP_SIZE;
 
@@ -167,6 +175,12 @@ bool setup(BelaContext *context, void *userData)
 	// Initialise window for grains
 	grainWindow = new Window(MAX_GRAIN_LENGTH);
 	
+	// Initialise GUI window
+	int defaultWindowSize = int(100.0f * 0.001f * gSampleRate);
+	for (int i = 0; i < defaultWindowSize; i++){
+		guiWindowBuffer[i] = grainWindow->getAt(i);
+	}
+	
 	// Initialise voices array 
 	for (auto& voice : voiceIndices) {
 		voice = NOT_PLAYING;
@@ -201,6 +215,9 @@ bool setup(BelaContext *context, void *userData)
 	// Second float is the incoming modifier value used to tweak the Tukey, Gaussian and trapezoid windows
 	gui.setBuffer('f', 2); // index 8
 	
+	// Buffer for receiving song selection signal
+	gui.setBuffer('d', 1); // index 9
+	
 	return true;
 }
 
@@ -209,7 +226,7 @@ void processGrainSrcBufferUpdate(int startIdx){
 	for (int hop = 0; hop < GRAIN_FFT_INTERVAL; hop++){
 		int currentStart = hop * FFT_HOP_SIZE;
 		for(int n = 0; n < N_FFT; n++) {
-			grainSrcTimeDomainIn[n].r = (ne10_float32_t) (gSampleData.samples[startIdx + currentStart + n] * gWindowBuffer[n]);
+			grainSrcTimeDomainIn[n].r = (ne10_float32_t) (gSampleData->samples[startIdx + currentStart + n] * gWindowBuffer[n]);
 			grainSrcTimeDomainIn[n].i = 0;
 		}
 		
@@ -262,8 +279,13 @@ void render(BelaContext *context, void *userData)
 	// Send file length of loaded sample ONCE when connected to initialise source position slider range
 	if(gui.isConnected() && !fileLengthSent){
 		rt_printf("Connected to GUI, yay! \n");
-		gui.sendBuffer(7, gSampleData.sampleLen);
+		gui.sendBuffer(7, gSampleData->sampleLen);
 		fileLengthSent = true;
+		
+		// Send gui window data once
+		gui.sendBuffer(0, guiWindowBuffer);
+	} else if(!gui.isConnected() && fileLengthSent){
+		fileLengthSent = false;
 	}
 	
 	// Get slider value from p5.js
@@ -273,12 +295,14 @@ void render(BelaContext *context, void *userData)
 	auto grainScatterReceiver = gui.getDataBuffer(5);
 	auto mainOutputGainReceiver = gui.getDataBuffer(6);
 	auto windowTypeReceiver = gui.getDataBuffer(8);
+	auto songIDReceiver = gui.getDataBuffer(9);
 	int sourcePosition = *(sourcePositionReceiver.getAsInt());
 	int grainLength = *(grainLengthReceiver.getAsInt());
 	int grainFrequency = *(grainFrequencyReceiver.getAsInt());
 	int grainScatter = *(grainScatterReceiver.getAsInt());
 	float mag = *(mainOutputGainReceiver.getAsFloat());
 	float* windowTypeInput = windowTypeReceiver.getAsFloat();
+	int incomingSongID = *(songIDReceiver.getAsInt());
 	
 	// Where we are in the sample
 	currentSourcePosition = sourcePosition;
@@ -292,6 +316,20 @@ void render(BelaContext *context, void *userData)
 	currentWindowModifier = windowTypeInput[1];
 	// Main output gain
 	mainOutputGain = mag; 
+	
+	if(incomingSongID != currentSong){
+		currentSong = incomingSongID;
+		gSampleData = &songs[currentSong];
+		// Reset pointers
+		gOutputBufferReadPointer = 0;
+		gOutputBufferWritePointer = 0;
+		
+		// Update file length in UI
+		gui.sendBuffer(7, gSampleData->sampleLen);
+		fileLengthSent = true;
+		
+		rt_printf("Song changed to %i \n", currentSong);
+	}
 	
 	// Update voice parameters if changed
 	if(currentScatter != prevScatter){

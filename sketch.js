@@ -1,5 +1,4 @@
 var guiSketch = new p5(function( sketch ) {
-
     let canvas_dimensions = [sketch.windowWidth, sketch.windowHeight];
 
 	// Array containing the current grain window data
@@ -31,28 +30,28 @@ var guiSketch = new p5(function( sketch ) {
     let mainOutputGainY = 0;
     let windowSelY = 0;
     let windowTypeModSliderY = 0;
-    const headerY = 32;
+    const headerY = 48;
     
     // Height
-	const sliderHeight = 15;
+	const sliderHeight = 27;
 	
 	// Grain window attributes
-	const grainWindowWidth = 600;
-	const grainWindowHeight = 400;
-	const grainWindowX = 600;
-	const grainWindowY = marginTop;
-	
+	const grainWindowSize = 75; // => 75 px square
+
 	// Flag for checking if length of source file was already set
 	let isSrcFileLengthSet = false;
-	let windowChanged = false;
+	let windowChanged = true;
 	let modChanged = false;
+	
+	// Whether it's the first run
+	let firstRun = true;
 
     sketch.setup = function() {
     	p5.disableFriendlyErrors = true;
     	// Limit fps
     	sketch.setFrameRate(30);
         sketch.createCanvas(canvas_dimensions[0], canvas_dimensions[1]);
-        
+  
         // Create sliders
         sourcePosY = headerY + marginTop;
         sourcePosSlider = undefined;
@@ -85,7 +84,7 @@ var guiSketch = new p5(function( sketch ) {
 		
 		// Create select for window
 		windowSel = sketch.createSelect();
-		windowSel.position(sliderX, windowSelY = mainOutputGainY + marginTop);
+		windowSel.position(sliderX, windowSelY = mainOutputGainY + marginTop + 14);
 		windowSel.option('Hann');
 		windowSel.option('Tukey');
 		windowSel.option('Gaussian');
@@ -94,26 +93,44 @@ var guiSketch = new p5(function( sketch ) {
 		windowSel.changed(windowTypeSend);
 
 		windowTypeModSlider = sketch.createSlider(0.01, 1, 0.5, 0.01);
-        windowTypeModSlider.position(sliderX, windowTypeModSliderY = windowSelY + marginTop);
+        windowTypeModSlider.position(sliderX, windowTypeModSliderY = windowSelY + marginTop + 48);
 		windowTypeModSlider.style('width', '240px');
 		windowTypeModSlider.input(windowTypeModChanged);
 		
-		sketch.noLoop();
+		 // Buttons for song selection
+        button = sketch.createButton('betti');
+		button.position(sliderX, windowTypeModSliderY + 2 * marginTop);
+		button.mousePressed(loadSong0);
+		
+		button = sketch.createButton('hawt');
+		button.position(sliderX + 48, windowTypeModSliderY + 2 * marginTop);
+		button.mousePressed(loadSong1);
+		
+		button = sketch.createButton('oneplustwo');
+		button.position(sliderX + 96, windowTypeModSliderY + 2 * marginTop);
+		button.mousePressed(loadSong2);
     };
 
     sketch.draw = function() {
     	// In order to set the range of the source position slider correctly
     	// we wait until render.cpp sends us the file length in samples
-    	// (this happens during the first render() call)
+    	// (this happens during the first render() call and later if the song is changed in the UI)
     	if(!isSrcFileLengthSet && Bela.data.buffers[7] > 0){
     		// Get file length
     		let fileLengthSamples = Bela.data.buffers[7];
+    		
+    		// On song changes the source position slider needs to be removed and then re-added
+    		if(!firstRun){
+    			sourcePosSlider.remove();
+    		}
+    		
     		// Then add the slider to the UI
     		sourcePosSlider = sketch.createSlider(0, fileLengthSamples, fileLengthSamples / 2, 1000);
 	        sourcePosSlider.position(sliderX, sourcePosY);
 			sourcePosSlider.style('width', '240px');
 			sourcePosSlider.input(sourcePositionChanged);
-			
+			firstRun = false;
+		
 			// Send updated src position once
 			sourcePosition = fileLengthSamples / 2;
 			sourcePositionChanged();
@@ -141,8 +158,9 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text('Number of grains / s', labelX, grainFrequencyY + sliderHeight);
 		sketch.text('Grain Scatter', labelX, grainScatterY + sliderHeight);
 		sketch.text('Main Output Gain', labelX, mainOutputGainY + sliderHeight);
-		sketch.text('Window Type', labelX, windowSelY + sliderHeight);
+		sketch.text('Window Type', labelX, windowSelY + sliderHeight - 14);
 		sketch.text('Window Modifier', labelX, windowTypeModSliderY + sliderHeight);
+		sketch.text('Source Audio Data', labelX, windowTypeModSliderY + 2 * marginTop + 15);
 		
         // Get values from sliders
         if(sourcePosSlider !== undefined){
@@ -169,26 +187,31 @@ var guiSketch = new p5(function( sketch ) {
 			windowLength = windowBufferChanged[1];
 		}
 		
-		if (Bela.data.buffers[0] !== undefined && windowChanged){
+		if (Bela.data.buffers[0].length > 0 && windowChanged){
+			windowData = Bela.data.buffers[0].slice(0, windowLength);
 			setTimeout(() => {
 				// Update window data
 				// Slice used here to only include the relevant part of the window
 				// as the window array in C++ is fixed size
 				windowData = Bela.data.buffers[0].slice(0, windowLength);
-				
+
 				// Draw the current grain window
 				drawWindow();
 				
 				windowChanged = false;
 				
 				// Disable looping
+				console.log("Loop off");
 				sketch.noLoop();
+				
+				
 			}, 300);
-			
 		}
 		
-		// Draw the current grain window
-		drawWindow();
+		if(!windowChanged){
+			// Draw the current grain window
+			drawWindow();
+		}
     };
     
     function sourcePositionChanged(){
@@ -225,12 +248,14 @@ var guiSketch = new p5(function( sketch ) {
     // Helper function to draw the current grain window representation
     function drawWindow(){
     	sketch.stroke(0);
+    	const rootX = sliderX + 124;
+    	const rootY = windowSelY + grainWindowSize;
     	// draw lines
-    	let px = grainWindowX;
-    	let py = grainWindowHeight - (windowData[0] * grainWindowHeight);
+    	let px = rootX;
+    	let py = rootY - (windowData[0] * grainWindowSize);
     	for(let i = 0; i < windowData.length; i++){
-	    	let x = grainWindowX + i * (grainWindowWidth / (windowData.length - 1));
-	    	let y = grainWindowHeight - (windowData[i] * grainWindowHeight);
+	    	let x = rootX + i * (grainWindowSize / (windowData.length - 1));
+	    	let y = rootY - (windowData[i] * grainWindowSize);
 	    	sketch.line(px, py, x, y);
 	    	// Update last position
 	    	px = x;
@@ -267,6 +292,30 @@ var guiSketch = new p5(function( sketch ) {
 		} else {
 			sketch.redraw();
 		}
+	}
+	
+	function loadSong0(){
+		isSrcFileLengthSet = false;
+		// Loop until new file length is received
+		sketch.loop();
+		
+		Bela.data.sendBuffer(9, 'int', 0);
+	}
+	
+	function loadSong1(){
+		isSrcFileLengthSet = false;
+		// Loop until new file length is received
+		sketch.loop();
+		
+		Bela.data.sendBuffer(9, 'int', 1);
+	}
+	
+	function loadSong2(){
+		isSrcFileLengthSet = false;
+		// Loop until new file length is received
+		sketch.loop();
+		
+		Bela.data.sendBuffer(9, 'int', 2);
 	}
     
 }, 'gui');

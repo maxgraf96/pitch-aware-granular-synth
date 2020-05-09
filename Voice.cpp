@@ -87,13 +87,13 @@ float Voice::play(){
 	// Output
 	float mix = 0.0f;
 	// Number of currently playing grains
-	int currentlyPlaying = 0;
+	/*int currentlyPlaying = 0;
 	
 	for (int grainIdx = 0; grainIdx < numberOfGrains; grainIdx++){
 		if(grainPositions[grainIdx] > NOT_PLAYING_I){
 			currentlyPlaying++;
 		}
-	}
+	}*/
 	
 	// Iterate over the grains currently playing and add their
 	// sample values to the mix
@@ -105,7 +105,7 @@ float Voice::play(){
 			auto currentSample = buffer[grainStartIdx + currentGrainPos] * window.getAt(currentGrainPos);
 			
 			// Add current sample to mix
-			mix += currentSample / float(currentlyPlaying);
+			mix += currentSample;// / float(currentlyPlaying);
 			
 			// Update sample position for grain buffer
 			grainPositions[grainIdx]++;
