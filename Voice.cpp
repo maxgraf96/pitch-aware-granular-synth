@@ -41,13 +41,12 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 		buffer[i] = 0.0f;
 	}
 	
-	// Extract frequencies from grain source buffer
-	int binF0 = int(map(frequency, 0.0f, float(sampleRate) / 2.0f, 0.0f, float(N_FFT / 2 + 1)));
-	
 	// Clear overtone bins
 	overtones.clear();
 	for (int i = 0; i < nOvertones; i++){
-		auto current = binF0 * (i + 1);
+		// Extract frequencies from grain source buffer
+		// With the current FFT settings the frequency resolution is ~10Hz / bin
+		auto current = int(round(map(frequency * (i + 1), 0.0f, float(sampleRate) / 2.0f, 0.0f, float(N_FFT / 2 + 1))));
 		if(current >= N_FFT)
 			break;
 		overtones.insert(current);
@@ -86,14 +85,6 @@ void Voice::noteOn(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL>& grai
 float Voice::play(){
 	// Output
 	float mix = 0.0f;
-	// Number of currently playing grains
-	/*int currentlyPlaying = 0;
-	
-	for (int grainIdx = 0; grainIdx < numberOfGrains; grainIdx++){
-		if(grainPositions[grainIdx] > NOT_PLAYING_I){
-			currentlyPlaying++;
-		}
-	}*/
 	
 	// Iterate over the grains currently playing and add their
 	// sample values to the mix
@@ -105,7 +96,7 @@ float Voice::play(){
 			auto currentSample = buffer[grainStartIdx + currentGrainPos] * window.getAt(currentGrainPos);
 			
 			// Add current sample to mix
-			mix += currentSample;// / float(currentlyPlaying);
+			mix += currentSample;
 			
 			// Update sample position for grain buffer
 			grainPositions[grainIdx]++;
@@ -147,6 +138,10 @@ void Voice::updateGrainSrcBuffer(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_I
 	for (int i = 0; i < MAX_GRAIN_SAMPLES; i++){
 		buffer[i] = 0.0f;
 	}
+	
+	// Scale factor is derived from the number of overtones
+	float scaleFactor = 1.0f / float(nOvertones);
+	
 	// Create a mask for the frequency domain representation based on the current fundamental frequency
 	for (int hop = 0; hop < GRAIN_FFT_INTERVAL; hop++){
 		for (int k = 0; k < N_FFT; k++){
@@ -172,20 +167,13 @@ void Voice::updateGrainSrcBuffer(std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_I
 			if(bufferPosition + i + 1 >= MAX_GRAIN_SAMPLES){
 				break;
 			}
-			buffer[bufferPosition + i] += timeDomainGrainBuffer[i].r;
+			buffer[bufferPosition + i] += timeDomainGrainBuffer[i].r * scaleFactor;
 		}
 		bufferPosition += FFT_HOP_SIZE;
 		if (bufferPosition >= MAX_GRAIN_SAMPLES){
 			break;
 		}
 	}
-	
-	// Normalise buffer level
-	/*float max = *std::max_element(buffer, buffer + MAX_GRAIN_SAMPLES);
-	float min = *std::min_element(buffer, buffer + MAX_GRAIN_SAMPLES);
-	for (int i = 0; i < MAX_GRAIN_SAMPLES; i++){
-		buffer[i] = map(buffer[i], min, max, -0.5f, 0.5f);
-	}*/
 }
 
 void Voice::noteOff(){

@@ -12,6 +12,12 @@ var guiSketch = new p5(function( sketch ) {
 	let grainFrequency = 1;
 	let grainScatter = 0;
 	let windowTypeMod = 0;
+	// Filter data
+	let lowpassCutoff = 20000.0;
+	let lowpassQ = 0.707;
+	let highpassCutoff = 30.0;
+	let highpassQ = 0.707;
+	
     let mainOutputGain = 0.5;
     
     // Positioning helpers
@@ -21,6 +27,10 @@ var guiSketch = new p5(function( sketch ) {
     const labelX = 24;
     const sliderX = 224;
     let sliderValuesX = 500;
+    
+    const labelColumn2X = sliderX * 3;
+    let sliderColumn2X = sliderX * 4 - 48;
+    const sliderValuesColumn2X = sliderColumn2X + 284;
     
     // y positions
     let sourcePosY = 0;
@@ -76,11 +86,10 @@ var guiSketch = new p5(function( sketch ) {
 		grainScatterSlider.input(grainScatterChanged);
 		grainScatterChanged();
 		
-		mainOutputGainSlider = sketch.createSlider(0, 1, 0.5, 0.01);
+		mainOutputGainSlider = sketch.createSlider(0, 10, 5, 0.01);
         mainOutputGainSlider.position(sliderX, mainOutputGainY = grainScatterY + marginTop);
 		mainOutputGainSlider.style('width', '240px');
 		mainOutputGainSlider.input(mainOutputGainChanged);
-		mainOutputGainChanged();
 		
 		// Create select for window
 		windowSel = sketch.createSelect();
@@ -109,6 +118,33 @@ var guiSketch = new p5(function( sketch ) {
 		button = sketch.createButton('oneplustwo');
 		button.position(sliderX + 96, windowTypeModSliderY + 2 * marginTop);
 		button.mousePressed(loadSong2);
+		
+		// Filter controls
+		// Lowpass
+		lowpassCutoffSlider = sketch.createSlider(1, 20000.0, 20000.0, 1);
+        lowpassCutoffSlider.position(sliderColumn2X, grainLengthY);
+		lowpassCutoffSlider.style('width', '240px');
+		lowpassCutoffSlider.input(lowpassDataChanged);
+		
+		lowpassQSlider = sketch.createSlider(0.1, 5, 0.707, 0.1);
+        lowpassQSlider.position(sliderColumn2X, grainLengthY + marginTop);
+		lowpassQSlider.style('width', '240px');
+		lowpassQSlider.input(lowpassDataChanged);
+		lowpassDataChanged();
+		
+		// Highpass
+		highpassCutoffSlider = sketch.createSlider(1, 5000.0, 20.0, 1);
+        highpassCutoffSlider.position(sliderColumn2X, mainOutputGainY);
+		highpassCutoffSlider.style('width', '240px');
+		highpassCutoffSlider.input(highpassDataChanged);
+		
+		highpassQSlider = sketch.createSlider(0.1, 5, 0.707, 0.1);
+        highpassQSlider.position(sliderColumn2X, windowSelY - 14);
+		highpassQSlider.style('width', '240px');
+		highpassQSlider.input(highpassDataChanged);
+		highpassDataChanged();
+		
+		mainOutputGainChanged();
     };
 
     sketch.draw = function() {
@@ -162,6 +198,13 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text('Window Modifier', labelX, windowTypeModSliderY + sliderHeight);
 		sketch.text('Source Audio Data', labelX, windowTypeModSliderY + 2 * marginTop + 15);
 		
+		// Filter slider labels
+		sketch.text('Cutoff frequency (Hz)', labelColumn2X, grainLengthY + sliderHeight);
+		sketch.text('Filter Q', labelColumn2X, grainFrequencyY + sliderHeight);
+		// Highpass
+		sketch.text('Cutoff frequency (Hz)', labelColumn2X, mainOutputGainY + sliderHeight);
+		sketch.text('Filter Q', labelColumn2X, windowSelY + sliderHeight - 14);
+		
         // Get values from sliders
         if(sourcePosSlider !== undefined){
         	sourcePosition = sourcePosSlider.value();
@@ -171,6 +214,10 @@ var guiSketch = new p5(function( sketch ) {
         grainScatter = grainScatterSlider.value();
         mainOutputGain = mainOutputGainSlider.value();
         windowTypeMod = windowTypeModSlider.value();
+        lowpassCutoff = lowpassCutoffSlider.value();
+        lowpassQ = lowpassQSlider.value();
+        highpassCutoff = highpassCutoffSlider.value();
+        highpassQ = highpassQSlider.value();
         
         // Draw slider values
         sketch.text(sourcePosition, sliderValuesX, sourcePosY + sliderHeight);
@@ -179,6 +226,18 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text(grainScatter, sliderValuesX, grainScatterY + sliderHeight);
 		sketch.text(mainOutputGain.toFixed(2), sliderValuesX, mainOutputGainY + sliderHeight);
 		sketch.text(windowTypeMod.toFixed(2), sliderValuesX, windowTypeModSliderY + sliderHeight);
+		
+		// Filter slider values
+		sketch.text(lowpassCutoff, sliderValuesColumn2X, grainLengthY + sliderHeight);
+		sketch.text(lowpassQ, sliderValuesColumn2X, grainFrequencyY + sliderHeight);
+		sketch.text(highpassCutoff, sliderValuesColumn2X, mainOutputGainY + sliderHeight);
+		sketch.text(highpassQ, sliderValuesColumn2X, windowSelY + sliderHeight - 14);
+		
+		// Draw filter headers
+		sketch.textStyle(sketch.BOLD);
+		sketch.textSize(16);
+		sketch.text("Lowpass", labelColumn2X, sourcePosY + sliderHeight);
+		sketch.text("Highpass", labelColumn2X, grainScatterY + sliderHeight);
 		
 		// Update the grain window rendering if it changed
 		windowBufferChanged = Bela.data.buffers[1];
@@ -194,6 +253,7 @@ var guiSketch = new p5(function( sketch ) {
 				// Slice used here to only include the relevant part of the window
 				// as the window array in C++ is fixed size
 				windowData = Bela.data.buffers[0].slice(0, windowLength);
+				windowLength = Bela.data.buffers[1][1];
 
 				// Draw the current grain window
 				drawWindow();
@@ -201,6 +261,7 @@ var guiSketch = new p5(function( sketch ) {
 				windowChanged = false;
 				
 				// Disable looping
+				console.log(windowLength);
 				console.log("Loop off");
 				sketch.noLoop();
 				
@@ -242,6 +303,16 @@ var guiSketch = new p5(function( sketch ) {
     
     function mainOutputGainChanged(){
     	Bela.data.sendBuffer(6, 'float', mainOutputGain);
+    	sketch.redraw();
+    }
+    
+    function lowpassDataChanged(){
+    	Bela.data.sendBuffer(10, 'float', [lowpassCutoff, lowpassQ]);
+    	sketch.redraw();
+    }
+    
+    function highpassDataChanged(){
+    	Bela.data.sendBuffer(11, 'float', [highpassCutoff, highpassQ]);
     	sketch.redraw();
     }
     

@@ -13,6 +13,8 @@
 #include "Globals.h"
 #include "SampleData.h"
 #include "Voice.h"
+#include "Lowpass.h"
+#include "Highpass.h"
 
 // Audio channels
 int numAudioChannels;
@@ -89,6 +91,12 @@ int currentGrainFrequency = 0;
 int currentWindowType = 0;
 float currentWindowModifier = 0.0f;
 
+// Lowpass filter data
+float currentLowpassCutoff = 20000.0f;
+float currentLowpassQ = 0.707f;
+float currentHighpassCutoff = 30.0f;
+float currentHighpassQ = 0.707f;
+
 // Main output gain
 float mainOutputGain = 0.0f;
 
@@ -99,9 +107,17 @@ int prevGrainLength = 0;
 int prevGrainFrequency = 0;
 int prevWindowType = 0;
 float prevWindowModifier = 0.0f;
+float prevLowpassCutoff = 0.0f;
+float prevLowpassQ = 0.0f;
+float prevHighpassCutoff = 0.0f;
+float prevHighpassQ = 0.0f;
 
 // Flag to set the file length to the gui once at startup
 bool fileLengthSent = false;
+
+// Filters
+std::unique_ptr<Lowpass> lowpass;
+std::unique_ptr<Highpass> highpass;
 
 void midiCallback(MidiChannelMessage message, void* arg);
 
@@ -218,6 +234,16 @@ bool setup(BelaContext *context, void *userData)
 	// Buffer for receiving song selection signal
 	gui.setBuffer('d', 1); // index 9
 	
+	// Buffer for lowpass filter cutoff frequency and q
+	gui.setBuffer('f', 2); // index 10
+	
+	// Buffer for highpass filter cutoff frequency and q
+	gui.setBuffer('f', 2); // index 11
+	
+	// Setup filters
+	lowpass.reset(new Lowpass(float(gSampleRate)));
+	highpass.reset(new Highpass(float(gSampleRate)));
+	
 	return true;
 }
 
@@ -296,6 +322,9 @@ void render(BelaContext *context, void *userData)
 	auto mainOutputGainReceiver = gui.getDataBuffer(6);
 	auto windowTypeReceiver = gui.getDataBuffer(8);
 	auto songIDReceiver = gui.getDataBuffer(9);
+	auto lowpassReceiver = gui.getDataBuffer(10);
+	auto highpassReceiver = gui.getDataBuffer(11);
+	
 	int sourcePosition = *(sourcePositionReceiver.getAsInt());
 	int grainLength = *(grainLengthReceiver.getAsInt());
 	int grainFrequency = *(grainFrequencyReceiver.getAsInt());
@@ -303,6 +332,16 @@ void render(BelaContext *context, void *userData)
 	float mag = *(mainOutputGainReceiver.getAsFloat());
 	float* windowTypeInput = windowTypeReceiver.getAsFloat();
 	int incomingSongID = *(songIDReceiver.getAsInt());
+	
+	// Set values for lowpass filter
+	float* lowpassData = lowpassReceiver.getAsFloat();
+	currentLowpassCutoff = lowpassData[0];
+	currentLowpassQ = lowpassData[1];
+	
+	// Set values for highpass filter
+	float* highpassData = highpassReceiver.getAsFloat();
+	currentHighpassCutoff = highpassData[0];
+	currentHighpassQ = highpassData[1];
 	
 	// Where we are in the sample
 	currentSourcePosition = sourcePosition;
@@ -316,6 +355,14 @@ void render(BelaContext *context, void *userData)
 	currentWindowModifier = windowTypeInput[1];
 	// Main output gain
 	mainOutputGain = mag; 
+	
+	// Calculate new filter coefficients if changed
+	if(currentLowpassCutoff != prevLowpassCutoff || currentLowpassQ != prevLowpassQ){
+		lowpass->calculate_coefficients(currentLowpassCutoff, currentLowpassQ);
+	}
+	if(currentHighpassCutoff != prevHighpassCutoff || currentHighpassQ != prevHighpassQ){
+		highpass->calculate_coefficients(currentHighpassCutoff, currentHighpassQ);
+	}
 	
 	if(incomingSongID != currentSong){
 		currentSong = incomingSongID;
@@ -388,8 +435,12 @@ void render(BelaContext *context, void *userData)
 			}
 		} 
 		
+		// Apply filters
+		float out = lowpass->processSample(gOutputBuffer[gOutputBufferWritePointer]);
+		out = highpass->processSample(out);
+		
 		// Apply main output gain
-		gOutputBuffer[gOutputBufferWritePointer] *= mainOutputGain;
+		gOutputBuffer[gOutputBufferWritePointer] = out * mainOutputGain;
 	}
 	
 	// Update previous source position
@@ -399,6 +450,10 @@ void render(BelaContext *context, void *userData)
 	prevGrainFrequency = currentGrainFrequency;
 	prevWindowType = currentWindowType;
 	prevWindowModifier = currentWindowModifier;
+	prevLowpassCutoff = currentLowpassCutoff;
+	prevLowpassQ = currentLowpassQ;
+	prevHighpassCutoff = currentLowpassCutoff;
+	prevHighpassQ = currentHighpassQ;
 }
 
 void midiCallback(MidiChannelMessage message, void* arg){
