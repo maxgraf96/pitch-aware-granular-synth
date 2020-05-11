@@ -119,6 +119,7 @@ bool fileLengthSent = false;
 std::unique_ptr<Lowpass> lowpass;
 std::unique_ptr<Highpass> highpass;
 
+// Function definition here to have setup() as the first method in render.cpp
 void midiCallback(MidiChannelMessage message, void* arg);
 
 bool setup(BelaContext *context, void *userData)
@@ -384,7 +385,7 @@ void render(BelaContext *context, void *userData)
 			voice.setScatter(currentScatter);
 		}
 	}
-	// Update window if changed
+	// Update grain window if changed
 	if(currentGrainLength != prevGrainLength 
 	|| currentWindowType != prevWindowType
 	|| currentWindowModifier != prevWindowModifier

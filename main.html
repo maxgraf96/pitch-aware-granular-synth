@@ -12,8 +12,8 @@
 	  height: 8.4px;
 	  cursor: pointer;
 	  animate: 0.2s;
-	  box-shadow: 1px 1px 1px #000000, 0px 0px 1px #0d0d0d;
-	  background: #3071a9;
+	  box-shadow: 0.5px 0.5px 1px #000000, 0px 0px 0.5px #0d0d0d;
+	  background: #455A64;
 	  border-radius: 1.3px;
 	  border: 0.2px solid #010101;
 	}
@@ -86,6 +86,23 @@
 	}
 	input[type=range]:focus::-ms-fill-upper {
 	  background: #367ebd;
+	}
+	
+	/* Additional styles for filter sliders */
+	input[type=range].lp_filter::-webkit-slider-runnable-track {
+		background: #5D4037;
+	}
+	
+	input[type=range].hp_filter::-webkit-slider-runnable-track {
+		background: #F4511E;
+	}
+	
+	input[type=range].main_output_gain::-webkit-slider-runnable-track {
+		background: #E53935;
+	}
+	
+	input[type=range].window_type_mod::-webkit-slider-runnable-track {
+		background: #689F38;
 	}
 }
 

@@ -36,7 +36,7 @@ void Window::setLength(int length){
 			break;
 		}
 		case gaussian: {
-			// For a gaussian window the modifier specifies the sigma value in the range [0...1]
+			// For the gaussian window the modifier specifies the sigma value in the range [0...1]
 			float sigma = modifier;
 			for(int i = 0; i < length; i++) {
     			window[i] = pow(exp(1), -0.5f * pow((( i - length / 2) / (sigma * length / 2.0f)), 2.0f)); 

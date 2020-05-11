@@ -90,10 +90,11 @@ var guiSketch = new p5(function( sketch ) {
         mainOutputGainSlider.position(sliderX, mainOutputGainY = grainScatterY + marginTop);
 		mainOutputGainSlider.style('width', '240px');
 		mainOutputGainSlider.input(mainOutputGainChanged);
+		mainOutputGainSlider.addClass("main_output_gain");
 		
 		// Create select for window
 		windowSel = sketch.createSelect();
-		windowSel.position(sliderX, windowSelY = mainOutputGainY + marginTop + 14);
+		windowSel.position(sliderX, windowSelY = mainOutputGainY + marginTop + 52);
 		windowSel.option('Hann');
 		windowSel.option('Tukey');
 		windowSel.option('Gaussian');
@@ -105,18 +106,19 @@ var guiSketch = new p5(function( sketch ) {
         windowTypeModSlider.position(sliderX, windowTypeModSliderY = windowSelY + marginTop + 48);
 		windowTypeModSlider.style('width', '240px');
 		windowTypeModSlider.input(windowTypeModChanged);
+		windowTypeModSlider.addClass("window_type_mod");
 		
 		 // Buttons for song selection
-        button = sketch.createButton('betti');
+        button = sketch.createButton('Song 1');
 		button.position(sliderX, windowTypeModSliderY + 2 * marginTop);
 		button.mousePressed(loadSong0);
 		
-		button = sketch.createButton('hawt');
-		button.position(sliderX + 48, windowTypeModSliderY + 2 * marginTop);
+		button = sketch.createButton('Song 2');
+		button.position(sliderX + 72, windowTypeModSliderY + 2 * marginTop);
 		button.mousePressed(loadSong1);
 		
-		button = sketch.createButton('oneplustwo');
-		button.position(sliderX + 96, windowTypeModSliderY + 2 * marginTop);
+		button = sketch.createButton('Song 3');
+		button.position(sliderX + 144, windowTypeModSliderY + 2 * marginTop);
 		button.mousePressed(loadSong2);
 		
 		// Filter controls
@@ -125,11 +127,13 @@ var guiSketch = new p5(function( sketch ) {
         lowpassCutoffSlider.position(sliderColumn2X, grainLengthY);
 		lowpassCutoffSlider.style('width', '240px');
 		lowpassCutoffSlider.input(lowpassDataChanged);
+		lowpassCutoffSlider.addClass("lp_filter");
 		
 		lowpassQSlider = sketch.createSlider(0.1, 5, 0.707, 0.1);
         lowpassQSlider.position(sliderColumn2X, grainLengthY + marginTop);
 		lowpassQSlider.style('width', '240px');
 		lowpassQSlider.input(lowpassDataChanged);
+		lowpassQSlider.addClass("lp_filter");
 		lowpassDataChanged();
 		
 		// Highpass
@@ -137,11 +141,14 @@ var guiSketch = new p5(function( sketch ) {
         highpassCutoffSlider.position(sliderColumn2X, mainOutputGainY);
 		highpassCutoffSlider.style('width', '240px');
 		highpassCutoffSlider.input(highpassDataChanged);
+		highpassCutoffSlider.addClass("hp_filter");
 		
 		highpassQSlider = sketch.createSlider(0.1, 5, 0.707, 0.1);
-        highpassQSlider.position(sliderColumn2X, windowSelY - 14);
+        highpassQSlider.position(sliderColumn2X, mainOutputGainY + marginTop);
 		highpassQSlider.style('width', '240px');
 		highpassQSlider.input(highpassDataChanged);
+		highpassQSlider.addClass("hp_filter");
+		
 		highpassDataChanged();
 		
 		mainOutputGainChanged();
@@ -193,8 +200,12 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text('Grain length (ms)', labelX, grainLengthY + sliderHeight);
 		sketch.text('Number of grains / s', labelX, grainFrequencyY + sliderHeight);
 		sketch.text('Grain Scatter', labelX, grainScatterY + sliderHeight);
+		sketch.textStyle(sketch.BOLD);
 		sketch.text('Main Output Gain', labelX, mainOutputGainY + sliderHeight);
-		sketch.text('Window Type', labelX, windowSelY + sliderHeight - 14);
+		sketch.textStyle(sketch.NORMAL);
+		
+		// Window related
+		sketch.text('Window Type', labelX, windowSelY + 14);
 		sketch.text('Window Modifier', labelX, windowTypeModSliderY + sliderHeight);
 		sketch.text('Source Audio Data', labelX, windowTypeModSliderY + 2 * marginTop + 15);
 		
@@ -203,7 +214,7 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text('Filter Q', labelColumn2X, grainFrequencyY + sliderHeight);
 		// Highpass
 		sketch.text('Cutoff frequency (Hz)', labelColumn2X, mainOutputGainY + sliderHeight);
-		sketch.text('Filter Q', labelColumn2X, windowSelY + sliderHeight - 14);
+		sketch.text('Filter Q', labelColumn2X, mainOutputGainY + marginTop + sliderHeight);
 		
         // Get values from sliders
         if(sourcePosSlider !== undefined){
@@ -231,7 +242,7 @@ var guiSketch = new p5(function( sketch ) {
 		sketch.text(lowpassCutoff, sliderValuesColumn2X, grainLengthY + sliderHeight);
 		sketch.text(lowpassQ, sliderValuesColumn2X, grainFrequencyY + sliderHeight);
 		sketch.text(highpassCutoff, sliderValuesColumn2X, mainOutputGainY + sliderHeight);
-		sketch.text(highpassQ, sliderValuesColumn2X, windowSelY + sliderHeight - 14);
+		sketch.text(highpassQ, sliderValuesColumn2X, mainOutputGainY + marginTop + sliderHeight);
 		
 		// Draw filter headers
 		sketch.textStyle(sketch.BOLD);
@@ -245,6 +256,15 @@ var guiSketch = new p5(function( sketch ) {
 			// Update window length 
 			windowLength = windowBufferChanged[1];
 		}
+		
+		// Draw filter header
+		sketch.textSize(20);
+		sketch.textStyle(sketch.BOLD);
+		sketch.push();
+	    sketch.translate(620, 176);
+	    sketch.rotate(sketch.radians(-90) );
+	    sketch.text("FILTERS", 0,0);
+		sketch.pop();
 		
 		if (Bela.data.buffers[0].length > 0 && windowChanged){
 			windowData = Bela.data.buffers[0].slice(0, windowLength);
@@ -321,6 +341,8 @@ var guiSketch = new p5(function( sketch ) {
     	sketch.stroke(0);
     	const rootX = sliderX + 124;
     	const rootY = windowSelY + grainWindowSize;
+    	//sketch.rect(rootX, rootY, grainWindowSize, grainWindowSize);
+    	
     	// draw lines
     	let px = rootX;
     	let py = rootY - (windowData[0] * grainWindowSize);
@@ -332,6 +354,16 @@ var guiSketch = new p5(function( sketch ) {
 	    	px = x;
 	    	py = y;
     	} 
+    	
+    	// Draw surrounding container
+    	sketch.strokeWeight(0.5);
+    	sketch.beginShape(sketch.LINES);
+		sketch.vertex(rootX, rootY);
+		sketch.vertex(rootX + grainWindowSize, rootY);
+		sketch.vertex(rootX, rootY - grainWindowSize);
+		sketch.vertex(rootX + grainWindowSize, rootY - grainWindowSize);
+		sketch.endShape();
+		sketch.strokeWeight(1);
 	}
 	
 	function windowTypeSend() {

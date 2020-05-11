@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <time.h>
-#include <libraries/ne10/NE10.h> // NEON FFT library
+#include <libraries/ne10/NE10.h>
 #include <numeric>
 #include <libraries/Midi/Midi.h>
 #include "Constants.h"
@@ -34,8 +34,7 @@ class Voice {
 		float frequency = NOT_PLAYING;
 		
 		// Buffer which will hold the masked frequency domain representation
-		// Filled once for each noteOn event
-		//std::array<ne10_fft_cpx_float32_t*, 10> maskedGrainBuffer = {};
+		// Filled once for each noteOn event and updated by updateGrainSrcBuffer()
 		ne10_fft_cpx_float32_t* currentMask;
 		
 		// Buffer which will hold the masked time domain representation
@@ -82,10 +81,9 @@ class Voice {
 		// Scatter: [0...100], will pseudorandomly change grain start positions
 		int scatter = 0;
 		
-		// Timbral stuff
+		// Timbral configuration
 		// Set of fft bins used in frequency extraction
 		std::set<int> overtones;
 		// Number of overtones to include in frequency extraction process
 		int nOvertones = 20;
-		
 };
