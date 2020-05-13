@@ -1,6 +1,10 @@
 var guiSketch = new p5(function( sketch ) {
     let canvas_dimensions = [sketch.windowWidth, sketch.windowHeight];
 
+	// Assume 44.1kHz for now 
+	// Used to convert sample values to seconds, only for display => all values are still passed expressed in samples
+	let sampleRate = 44100;
+	
 	// Array containing the current grain window data
     let windowData = 0;
     // And its length
@@ -8,17 +12,16 @@ var guiSketch = new p5(function( sketch ) {
     // Whether the window changed, if it changed, redraw it
     let windowBufferChanged = 0;
     
+    // Default values for parameters
     let grainLength = 100;
 	let grainFrequency = 1;
 	let grainScatter = 0;
 	let windowTypeMod = 0;
-	// Filter data
 	let lowpassCutoff = 20000.0;
 	let lowpassQ = 0.707;
 	let highpassCutoff = 30.0;
 	let highpassQ = 0.707;
-	
-    let mainOutputGain = 0.5;
+    let mainOutputGain = 5.0;
     
     // Positioning helpers
     let marginTop = 32;
@@ -42,7 +45,7 @@ var guiSketch = new p5(function( sketch ) {
     let windowTypeModSliderY = 0;
     const headerY = 48;
     
-    // Height
+    // Slider height
 	const sliderHeight = 27;
 	
 	// Grain window attributes
@@ -86,7 +89,7 @@ var guiSketch = new p5(function( sketch ) {
 		grainScatterSlider.input(grainScatterChanged);
 		grainScatterChanged();
 		
-		mainOutputGainSlider = sketch.createSlider(0, 10, 5, 0.01);
+		mainOutputGainSlider = sketch.createSlider(0, 20, 5, 0.01);
         mainOutputGainSlider.position(sliderX, mainOutputGainY = grainScatterY + marginTop);
 		mainOutputGainSlider.style('width', '240px');
 		mainOutputGainSlider.input(mainOutputGainChanged);
@@ -168,7 +171,7 @@ var guiSketch = new p5(function( sketch ) {
     		}
     		
     		// Then add the slider to the UI
-    		sourcePosSlider = sketch.createSlider(0, fileLengthSamples, fileLengthSamples / 2, 1000);
+    		sourcePosSlider = sketch.createSlider(0, fileLengthSamples -  1.3 * sampleRate, fileLengthSamples / 2, 1000);
 	        sourcePosSlider.position(sliderX, sourcePosY);
 			sourcePosSlider.style('width', '240px');
 			sourcePosSlider.input(sourcePositionChanged);
@@ -196,7 +199,7 @@ var guiSketch = new p5(function( sketch ) {
 		
 		// Draw slider labels
 		sketch.textSize(14);
-		sketch.text('Source position (samples)', labelX, sourcePosY + sliderHeight);
+		sketch.text('Source position (seconds)', labelX, sourcePosY + sliderHeight);
 		sketch.text('Grain length (ms)', labelX, grainLengthY + sliderHeight);
 		sketch.text('Number of grains / s', labelX, grainFrequencyY + sliderHeight);
 		sketch.text('Grain Scatter', labelX, grainScatterY + sliderHeight);
@@ -231,7 +234,7 @@ var guiSketch = new p5(function( sketch ) {
         highpassQ = highpassQSlider.value();
         
         // Draw slider values
-        sketch.text(sourcePosition, sliderValuesX, sourcePosY + sliderHeight);
+        sketch.text((sourcePosition / 44100).toFixed(2), sliderValuesX, sourcePosY + sliderHeight);
         sketch.text(grainLength, sliderValuesX, grainLengthY + sliderHeight);
 		sketch.text(grainFrequency, sliderValuesX, grainFrequencyY + sliderHeight);
 		sketch.text(grainScatter, sliderValuesX, grainScatterY + sliderHeight);
@@ -252,6 +255,7 @@ var guiSketch = new p5(function( sketch ) {
 		
 		// Update the grain window rendering if it changed
 		windowBufferChanged = Bela.data.buffers[1];
+		
 		if(windowBufferChanged !== undefined && windowBufferChanged[0] == 1){
 			// Update window length 
 			windowLength = windowBufferChanged[1];
@@ -295,6 +299,7 @@ var guiSketch = new p5(function( sketch ) {
 		}
     };
     
+    // Callback functions for parameter changes
     function sourcePositionChanged(){
 		Bela.data.sendBuffer(2, 'int', sourcePosition);
     	sketch.redraw();
@@ -336,37 +341,7 @@ var guiSketch = new p5(function( sketch ) {
     	sketch.redraw();
     }
     
-    // Helper function to draw the current grain window representation
-    function drawWindow(){
-    	sketch.stroke(0);
-    	const rootX = sliderX + 124;
-    	const rootY = windowSelY + grainWindowSize;
-    	//sketch.rect(rootX, rootY, grainWindowSize, grainWindowSize);
-    	
-    	// draw lines
-    	let px = rootX;
-    	let py = rootY - (windowData[0] * grainWindowSize);
-    	for(let i = 0; i < windowData.length; i++){
-	    	let x = rootX + i * (grainWindowSize / (windowData.length - 1));
-	    	let y = rootY - (windowData[i] * grainWindowSize);
-	    	sketch.line(px, py, x, y);
-	    	// Update last position
-	    	px = x;
-	    	py = y;
-    	} 
-    	
-    	// Draw surrounding container
-    	sketch.strokeWeight(0.5);
-    	sketch.beginShape(sketch.LINES);
-		sketch.vertex(rootX, rootY);
-		sketch.vertex(rootX + grainWindowSize, rootY);
-		sketch.vertex(rootX, rootY - grainWindowSize);
-		sketch.vertex(rootX + grainWindowSize, rootY - grainWindowSize);
-		sketch.endShape();
-		sketch.strokeWeight(1);
-	}
-	
-	function windowTypeSend() {
+    function windowTypeSend() {
 		let item = windowSel.value();
 		let coded = 0;
 		switch(item){
@@ -396,7 +371,37 @@ var guiSketch = new p5(function( sketch ) {
 			sketch.redraw();
 		}
 	}
+    
+    // Helper function to draw the current grain window representation
+    function drawWindow(){
+    	sketch.stroke(0);
+    	const rootX = sliderX + 124;
+    	const rootY = windowSelY + grainWindowSize;
+
+    	// draw lines
+    	let px = rootX;
+    	let py = rootY - (windowData[0] * grainWindowSize);
+    	for(let i = 0; i < windowData.length; i++){
+	    	let x = rootX + i * (grainWindowSize / (windowData.length - 1));
+	    	let y = rootY - (windowData[i] * grainWindowSize);
+	    	sketch.line(px, py, x, y);
+	    	// Update last position
+	    	px = x;
+	    	py = y;
+    	} 
+    	
+    	// Draw surrounding container
+    	sketch.strokeWeight(0.5);
+    	sketch.beginShape(sketch.LINES);
+		sketch.vertex(rootX, rootY);
+		sketch.vertex(rootX + grainWindowSize, rootY);
+		sketch.vertex(rootX, rootY - grainWindowSize);
+		sketch.vertex(rootX + grainWindowSize, rootY - grainWindowSize);
+		sketch.endShape();
+		sketch.strokeWeight(1);
+	}
 	
+	// Callback functions for loading songs
 	function loadSong0(){
 		isSrcFileLengthSet = false;
 		// Loop until new file length is received

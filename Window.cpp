@@ -74,12 +74,4 @@ float Window::getAt(int index){
 	return window[index];
 }
 
-std::array<float, MAX_GRAIN_LENGTH> Window::getFullData(){
-	return window;
-}
-
-static Window::WindowType parseWindowType(int input){
-	return static_cast<Window::WindowType>(input);
-};
-
 Window::~Window(){};

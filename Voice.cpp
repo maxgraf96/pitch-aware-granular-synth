@@ -236,10 +236,6 @@ int Voice::getRandomInRange(int upperLimit){
 	return rand() % upperLimit + 1;
 }
 
-bool Voice::getRandomBool(){
-	return rand() % 2 == 0;
-}
-
 Voice::~Voice(){
 	//grains.clear();
 }

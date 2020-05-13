@@ -32,11 +32,7 @@ class Window {
 		
 		// Getter for window array data at index
 		float getAt(int index);
-		std::array<float, MAX_GRAIN_LENGTH> getFullData();
-		
-		static WindowType parseWindowType(int input);
-		
-		
+
 		~Window();
 		
 	private:
@@ -46,7 +42,7 @@ class Window {
 		// Current window type
 		WindowType windowType = hann;
 		
-		// Modifier for tukey, gaussian and trapezoidal windows
+		// Modifier for Tukey, Gaussian and trapezoidal windows
 		float modifier = 0.0f;
 		
 		// Array for windowData

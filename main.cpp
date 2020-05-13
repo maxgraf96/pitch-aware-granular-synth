@@ -1,5 +1,5 @@
 /***** main.cpp *****/
-// main.cpp taken from https://github.com/BelaPlatform/Bela/blob/master/examples/Audio/FFT-phase-vocoder/render.cpp
+// main.cpp adapted from https://github.com/BelaPlatform/Bela/blob/master/examples/Audio/FFT-phase-vocoder/render.cpp
 
 /*
  ____  _____ _        _    
@@ -136,10 +136,10 @@ SampleData songs[3] = {};
 string fileName1 = "betti.wav";
 SampleData gSampleData1;
 // Second song
-string fileName2 = "hawt.wav";
+string fileName2 = "nicefornothing.wav";
 SampleData gSampleData2;
 // Third song
-string fileName3 = "oneplustwo.wav";
+string fileName3 = "jazzo.wav";
 SampleData gSampleData3;
 
 int main(int argc, char *argv[])

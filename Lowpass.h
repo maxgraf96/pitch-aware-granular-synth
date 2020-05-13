@@ -3,8 +3,12 @@
 #include <libraries/GuiController/GuiController.h>
 #include <cmath>
 
+/*
+ * Fourth-order lowpass filter
+*/
 class Lowpass{
 	public:
+		// Initialise with a given sample rate
 		Lowpass(float sampleRate);
 		
 		// Calculate filter coefficients with given specifications

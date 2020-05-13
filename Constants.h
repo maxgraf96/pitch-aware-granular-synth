@@ -4,7 +4,6 @@
 *****/
 #ifndef MY_CONSTANTS_H
 #define MY_CONSTANTS_H
-#include <libraries/Midi/Midi.h> // For map function
 
 // Buffer length for the main output buffer
 const int MAIN_BUFFER_LENGTH = 16384;
@@ -22,7 +21,7 @@ const int NOT_PLAYING_I = -1;
 const int NUM_VOICES = 10;
 
 // Expressed in factors of FFT_HOP_SIZE
-// 100 will lead to a src grain buffer of 100 * 512 = 51200 samples (~1.25s)
+// 100 will lead to a src grain buffer of 100 * 512 = 51200 samples (~1.25s at 44.1kHz)
 const int GRAIN_FFT_INTERVAL = 100;
 
 // The final length of the grain source buffer

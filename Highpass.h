@@ -4,8 +4,12 @@
 #include <libraries/GuiController/GuiController.h>
 #include <cmath>
 
+/* 
+ * Second order highpass filter
+*/
 class Highpass{
 	public:
+		// Create an instance of the filter for the specified sample rate
 		Highpass(float sampleRate);
 		
 		// Calculate filter coefficients with given specifications

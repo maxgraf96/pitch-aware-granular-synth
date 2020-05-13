@@ -9,12 +9,18 @@
 #include <libraries/Gui/Gui.h>
 #include <libraries/GuiController/GuiController.h>
 
-// Definition for global variables so as to avoid cluttering the render.cpp code
 #include "Globals.h"
 #include "SampleData.h"
 #include "Voice.h"
 #include "Lowpass.h"
 #include "Highpass.h"
+
+// ---------------------------------- general ----------------------------------------
+// Expose sample rate (in setup()
+int gSampleRate = 0;
+// Which song serves as the source buffer
+// 0 = betti.wav, 1 = nicefornothing.wav, 2 = jazzo.wav
+int currentSong = 0;
 
 // Audio channels
 int numAudioChannels;
@@ -23,7 +29,8 @@ int numAudioChannels;
 float gOutputBuffer[MAIN_BUFFER_LENGTH];
 int gOutputBufferWritePointer = 0;
 int gOutputBufferReadPointer = 0;
-
+// ---------------------------------- end general -------------------------------------
+// ---------------------------------- FFT related -------------------------------------
 // Window for the main FFT that creates the grain source frequency domain buffer
 float *gWindowBuffer;
 
@@ -39,47 +46,39 @@ std::array<ne10_fft_cpx_float32_t*, GRAIN_FFT_INTERVAL> grainSrcFrequencyDomain 
 // Sample info
 SampleData* gSampleData;
 
-// Which song serves as the source buffer
-// 0 = betti.wav, 1 = hawt.wav, 2 = oneplustwo.wav
-int currentSong = 0;
-
-// Position of last read sample from audio file
-int gReadPtr = 0;
-
+// ---------------------------------- end FFT related -----------------------------------
+// ---------------------------------- auxiliary tasks -----------------------------------
 // Auxiliary task for calculating FFT
 AuxiliaryTask updateGrainSrcBufferTask;
-// For updating the grain window asnchronously
+
+// Auxiliary task for updating the grain window asnchronously
 AuxiliaryTask updateGrainWindowTask;
 
-int gFFTInputBufferPointer = 0;
-int gFFTOutputBufferPointer = 0;
-
-// Necessary function definition for running an auxiliary task later
+// Convenience function definitions for running an auxiliary task later
 void processGrainSrcBufferUpdateBackground(void*);
 void processGrainWindowUpdateBackground(void *);
-
-float *gInputAudio = NULL;
-
+// ---------------------------------- end auxiliary tasks --------------------------------
+// ---------------------------------- Voices  --------------------------------------------
 // MIDI object for receiving MIDI data
 Midi midi;
 
-// Voice indices: An array indicating which voice (default number of voices: 16) currently plays which frequency
+// Voice indices: An array indicating which voice (default number of voices: 10) currently plays which frequency
 // All voices are initially "not playing", indicated by -1.0f
 float voiceIndices[NUM_VOICES] = { NOT_PLAYING };
+// Vector containing the voice objects (i.e. instances of the Voice class) in the same order as the indices
 std::vector<Voice> voiceObjects = {};
-
-// Expose sample rate
-int gSampleRate = 0;
-
-// The one grain window to rule them all
+// ---------------------------------- end Voices -----------------------------------------
+// ---------------------------------- Grain window ---------------------------------------
+// The one grain window used for all grains in all voices (to rule them all)
 Window* grainWindow = nullptr;
+// A corresponding window buffer which can be sent to p5 js to display the current window in the GUI
 float guiWindowBuffer[MAX_GRAIN_LENGTH] = {};
-
-// Browser-based GUI to adjust parameters
+// ---------------------------------- end grain window -----------------------------------
+// ---------------------------------- GUI related ----------------------------------------
+// Browser-based GUI to adjust system parameters
 Gui gui;
 
 // Current selected position in source file
-// Can be changed via GUI
 int currentSourcePosition = 0;
 // Current scatter of grains in Voices (if greater than 0, will shift start positions of grains)
 int currentScatter = 0;
@@ -98,7 +97,7 @@ float currentHighpassCutoff = 30.0f;
 float currentHighpassQ = 0.707f;
 
 // Main output gain
-float mainOutputGain = 0.0f;
+float mainOutputGain = 5.0f;
 
 // Previous values for GUI parameters
 int prevSourcePosition = 0;
@@ -115,10 +114,11 @@ float prevHighpassQ = 0.0f;
 // Flag to set the file length to the gui once at startup
 bool fileLengthSent = false;
 
-// Filters
+// ---------------------------------- end GUI related -------------------------------------
+// ---------------------------------- Filters ---------------------------------------------
 std::unique_ptr<Lowpass> lowpass;
 std::unique_ptr<Highpass> highpass;
-
+// ---------------------------------- end Filters------------------------------------------
 // Function definition here to have setup() as the first method in render.cpp
 void midiCallback(MidiChannelMessage message, void* arg);
 
@@ -133,15 +133,10 @@ bool setup(BelaContext *context, void *userData)
 		printf("Different number of audio outputs and inputs available. Using %d channels.\n", numAudioChannels);
 	}
 	
-	// Retrieve a parameter passed in from the initAudio() call
-	//gSampleData = *(SampleData *)userData;
+	// Retrieve songs from main.cpp initAudio() call
 	gSampleData = &songs[0];
 	
-	rt_printf("%i", sizeof(gSampleData->samples));
-
 	rt_printf("Sample data length: %4.2f seconds \n", (gSampleData->sampleLen / context->audioSampleRate));
-
-	gOutputBufferWritePointer += FFT_HOP_SIZE;
 
 	// Allocate memory for FFT config
 	cfg = ne10_fft_alloc_c2c_float32_neon (N_FFT);
@@ -157,12 +152,8 @@ bool setup(BelaContext *context, void *userData)
 		}
 	}
 	
+	// Allocate output buffer memory
 	memset(gOutputBuffer, 0, MAIN_BUFFER_LENGTH * sizeof(float));
-
-	// Allocate buffer to mirror and modify the input
-	gInputAudio = (float *)malloc(context->audioFrames * numAudioChannels * sizeof(float));
-	if(gInputAudio == 0)
-		return false;
 
 	// Allocate the window buffer based on the FFT size
 	gWindowBuffer = (float *)malloc(N_FFT * sizeof(float));
@@ -248,6 +239,11 @@ bool setup(BelaContext *context, void *userData)
 	return true;
 }
 
+/* 
+ * Updates the grain source buffer by creating a frequency domain representation 
+ * of the current window in the source material.
+ * The new window data is then passed to all playing voices (the other voices mask it dynamically on noteOn events)
+*/
 void processGrainSrcBufferUpdate(int startIdx){
 	// Copy part of sample buffer into FFT input from given start index
 	for (int hop = 0; hop < GRAIN_FFT_INTERVAL; hop++){
@@ -270,6 +266,10 @@ void processGrainSrcBufferUpdate(int startIdx){
 	rt_printf("Done updating grain source buffer \n");
 }
 
+/*
+ * Triggered via the UI. Updates the window used to control amplitudes of all grains.
+ * Sends updated window back to UI.
+*/
 void processGrainWindowUpdate(){
 	// Update grain window type (also sets length)
 	grainWindow->updateWindow(currentGrainLength, currentWindowType, currentWindowModifier);
@@ -293,6 +293,7 @@ void processGrainWindowUpdate(){
 	gui.sendBuffer(1, windowChanged);
 }
 
+// ----------------------------- Methods used by auxiliary tasks -----------------------------
 void processGrainSrcBufferUpdateBackground(void *){
 	processGrainSrcBufferUpdate(currentSourcePosition);
 }
@@ -300,12 +301,16 @@ void processGrainSrcBufferUpdateBackground(void *){
 void processGrainWindowUpdateBackground(void *){
 	processGrainWindowUpdate();
 }
+// ----------------------------- end methods used by auxiliary tasks -----------------------------
 
 void render(BelaContext *context, void *userData)
 {
-	// Send file length of loaded sample ONCE when connected to initialise source position slider range
+	// Get number of audio frames
+	int numAudioFrames = context->audioFrames;
+	
+	// Send file length of loaded sample ONCE when connected to GUI to initialise source position slider range
 	if(gui.isConnected() && !fileLengthSent){
-		rt_printf("Connected to GUI, yay! \n");
+		rt_printf("Connected to GUI! \n");
 		gui.sendBuffer(7, gSampleData->sampleLen);
 		fileLengthSent = true;
 		
@@ -315,7 +320,7 @@ void render(BelaContext *context, void *userData)
 		fileLengthSent = false;
 	}
 	
-	// Get slider value from p5.js
+	// Get slider values from p5.js
 	auto sourcePositionReceiver = gui.getDataBuffer(2);
 	auto grainLengthReceiver = gui.getDataBuffer(3);
 	auto grainFrequencyReceiver = gui.getDataBuffer(4);
@@ -326,6 +331,7 @@ void render(BelaContext *context, void *userData)
 	auto lowpassReceiver = gui.getDataBuffer(10);
 	auto highpassReceiver = gui.getDataBuffer(11);
 	
+	// Unpack values
 	int sourcePosition = *(sourcePositionReceiver.getAsInt());
 	int grainLength = *(grainLengthReceiver.getAsInt());
 	int grainFrequency = *(grainFrequencyReceiver.getAsInt());
@@ -365,6 +371,8 @@ void render(BelaContext *context, void *userData)
 		highpass->calculate_coefficients(currentHighpassCutoff, currentHighpassQ);
 	}
 	
+	// Update source material if changed in the UI
+	// This happens when one of the three buttons is clicked
 	if(incomingSongID != currentSong){
 		currentSong = incomingSongID;
 		gSampleData = &songs[currentSong];
@@ -393,14 +401,13 @@ void render(BelaContext *context, void *userData)
 		// Update grain window asynchronously
 		Bela_scheduleAuxiliaryTask(updateGrainWindowTask);
 	}
+	
+	// Update grain frequency (number of grains per second) if changed
 	if(currentGrainFrequency != prevGrainFrequency){
 		for(Voice& voice : voiceObjects){
 			voice.setGrainFrequency(currentGrainFrequency);
 		}
 	}
-	
-	// Get number of audio frames
-	int numAudioFrames = context->audioFrames;
 	
 	// If source position changed, update the grain source buffer
 	if (currentSourcePosition != prevSourcePosition){
@@ -444,7 +451,7 @@ void render(BelaContext *context, void *userData)
 		gOutputBuffer[gOutputBufferWritePointer] = out * mainOutputGain;
 	}
 	
-	// Update previous source position
+	// Update previous state of parameters
 	prevSourcePosition = currentSourcePosition;
 	prevScatter = currentScatter;
 	prevGrainLength = currentGrainLength;
@@ -457,6 +464,9 @@ void render(BelaContext *context, void *userData)
 	prevHighpassQ = currentHighpassQ;
 }
 
+/*
+ * Handling of MIDI note-on and note-off events
+*/
 void midiCallback(MidiChannelMessage message, void* arg){
 	// Note on event: Find the next free voice and assign frequency coming from MIDI note
 	if(message.getType() == kmmNoteOn){
@@ -503,10 +513,12 @@ void midiCallback(MidiChannelMessage message, void* arg){
 	}
 }
 
+/* 
+ * Release memory allocated in setup()
+*/
 void cleanup(BelaContext *context, void *userData)
 {
 	NE10_FREE(cfg);
-	free(gInputAudio);
 	free(gWindowBuffer);
 	NE10_FREE(grainSrcTimeDomainIn);
 	

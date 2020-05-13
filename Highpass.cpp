@@ -44,7 +44,8 @@ float Highpass::processSample(float sampleInput){
 
 void Highpass::calculate_coefficients(float frequency, float q)
 {
-	// Adaption of the JUCE second order HP implementation, see https://docs.juce.com/master/classIIRFilter.html
+	// Adaption of the JUCE second order HP implementation
+	// see https://github.com/juce-framework/JUCE/blob/master/modules/juce_dsp/processors/juce_IIRFilter.h
 	float n = std::tan (M_PI * frequency / sampleRate);
     float nSquared = n * n;
     float invQ = 1.0f / q;
